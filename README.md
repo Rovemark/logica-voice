@@ -203,7 +203,7 @@ See [docs/VOICES.md](docs/VOICES.md) for the full voice system + ethics guidelin
 - **v0.5** — Discord, Slack, WebRTC mobile, LiveKit integration
 - **v1.0** — Production hardening, multi-tenant, observability
 
-Full roadmap: [docs/ROADMAP.md](docs/ROADMAP.md)
+See [CHANGELOG.md](CHANGELOG.md) for what shipped.
 
 ---
 
@@ -225,17 +225,13 @@ Full roadmap: [docs/ROADMAP.md](docs/ROADMAP.md)
 
 ---
 
-## Documentation
+## Resources
 
-- [ARCHITECTURE.md](docs/ARCHITECTURE.md) — Frame-based pipeline, adapter interfaces
-- [STACK.md](docs/STACK.md) — Component choices (2026 benchmarks)
-- [DECISIONS.md](docs/DECISIONS.md) — Architecture Decision Records
-- [VOICE.md](docs/VOICE.md) — Audio pipeline (STT → LLM → TTS, Jarvis mode)
-- [VOICES.md](docs/VOICES.md) — Voice-per-agent system (3 tiers + ethics)
-- [BRAIN-ADAPTERS.md](docs/BRAIN-ADAPTERS.md) — Plug any LLM
-- [LOGICAOS-INTEGRATION.md](docs/LOGICAOS-INTEGRATION.md) — Bundle with LogicaOS for 130+ agents
-- [PIPECAT-COMPARISON.md](docs/PIPECAT-COMPARISON.md) — Credit & differences
-- [ROADMAP.md](docs/ROADMAP.md) — v0.1 → v1.0
+- [CONTRIBUTING.md](CONTRIBUTING.md) — How to contribute
+- [CHANGELOG.md](CHANGELOG.md) — Version history
+- [SECURITY.md](SECURITY.md) — How to report vulnerabilities
+- [TROUBLESHOOTING.md](TROUBLESHOOTING.md) — Common issues & fixes
+- [examples/](examples/) — Ready-to-run templates
 
 ---
 

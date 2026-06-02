@@ -9,3 +9,6 @@ dist/
 .pm2/
 coverage/
 .turbo/
+
+# Internal docs (kept in private brain repo, not public)
+docs/
