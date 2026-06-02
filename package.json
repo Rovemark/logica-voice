@@ -1,0 +1,24 @@
+{
+  "name": "@logica-voice/monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Logica Voice — open source conversational AI framework (multi-channel, multi-agent, voice-native, 100% local)",
+  "license": "MIT",
+  "author": "Rovemark (André Ambrosio)",
+  "repository": "github:Rovemark/logica-voice",
+  "homepage": "https://github.com/Rovemark/logica-voice",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "clean": "pnpm -r exec rm -rf dist node_modules"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  },
+  "packageManager": "pnpm@9.0.0"
+}

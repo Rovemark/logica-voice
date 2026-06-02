@@ -1,0 +1,22 @@
+{
+  "name": "@logica-voice/brain-built-in",
+  "version": "0.1.0",
+  "description": "Built-in brain: agents.yaml + qualquer LLM provider (OpenAI/Claude/Ollama)",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@logica-voice/core": "workspace:*",
+    "yaml": "^2.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.5.0"
+  }
+}

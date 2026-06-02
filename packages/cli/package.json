@@ -1,0 +1,30 @@
+{
+  "name": "@logica-voice/cli",
+  "version": "0.1.0",
+  "description": "Logica Voice CLI (init, setup, start, stop, status, logs, voice)",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "logica-voice": "./bin/logica-voice.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist", "bin"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@logica-voice/core": "workspace:*",
+    "@logica-voice/brain-built-in": "workspace:*",
+    "@logica-voice/brain-logicaos": "workspace:*",
+    "@logica-voice/adapter-telegram": "workspace:*",
+    "@logica-voice/adapter-whatsapp": "workspace:*",
+    "commander": "^12.0.0",
+    "yaml": "^2.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.5.0"
+  }
+}

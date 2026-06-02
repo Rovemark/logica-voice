@@ -1,0 +1,21 @@
+{
+  "name": "@logica-voice/adapter-telegram",
+  "version": "0.1.0",
+  "description": "Logica Voice — Telegram channel adapter (Bot API via long polling)",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@logica-voice/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.5.0"
+  }
+}

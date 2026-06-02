@@ -1,0 +1,23 @@
+{
+  "name": "@logica-voice/adapter-whatsapp",
+  "version": "0.1.0",
+  "description": "Logica Voice — WhatsApp channel adapter (Baileys, com fixes LID + BR phone + fail-closed ACL)",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@logica-voice/core": "workspace:*",
+    "@whiskeysockets/baileys": "^6.7.0",
+    "pino": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.5.0"
+  }
+}
