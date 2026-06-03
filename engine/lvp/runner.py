@@ -32,6 +32,9 @@ SILENCE_GAP_MS = int(os.environ.get('LVP_SILENCE_GAP_MS', '250'))
 TTS_ENGINE = os.environ.get('LVP_TTS_ENGINE', 'kokoro')
 TTS_URL = os.environ.get('LVP_TTS_URL', 'http://127.0.0.1:8911')
 TTS_VOICE = os.environ.get('LVP_TTS_VOICE', 'pm_alex')
+# Semantic turn detection: LVP_SMART_TURN=true enables the ML end-of-turn model.
+SMART_TURN = os.environ.get('LVP_SMART_TURN', 'false').lower() in ('1', 'true', 'yes')
+HARD_STOP_SECS = float(os.environ.get('LVP_HARD_STOP_SECS', '3.0'))
 
 
 class LVPSession:
@@ -49,7 +52,10 @@ class LVPSession:
             dur_s = nbytes / 2 / 24000  # int16, 24kHz
             self._bot_speaking_until = max(self._bot_speaking_until, time.time()) + dur_s + ECHO_TAIL_MS / 1000.0
 
-        self.vad = VADProcessor(silence_gap_ms=SILENCE_GAP_MS, bot_speaking_getter=bot_speaking)
+        self.vad = VADProcessor(
+            silence_gap_ms=SILENCE_GAP_MS, bot_speaking_getter=bot_speaking,
+            smart_turn=SMART_TURN, hard_stop_secs=HARD_STOP_SECS,
+        )
         self.pipeline = Pipeline([
             self.vad,
             STTProcessor(),

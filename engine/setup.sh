@@ -23,6 +23,9 @@ pip install --upgrade pip --quiet
 echo "→ Installing core (websockets, aiohttp, numpy, silero-vad, torch)..."
 pip install --quiet websockets aiohttp numpy silero-vad torch scipy
 
+echo "→ Installing semantic turn detection (smart-turn-v3 ONNX, optional)..."
+pip install --quiet onnxruntime soxr || echo "  ⚠ smart-turn deps skipped (LVP_SMART_TURN won't work)"
+
 echo "→ Installing STT (faster-whisper)..."
 pip install --quiet faster-whisper
 

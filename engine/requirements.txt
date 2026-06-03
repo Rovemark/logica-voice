@@ -8,6 +8,10 @@ numpy>=1.26
 silero-vad>=5.1
 torch>=2.2
 
+# Semantic turn detection (optional, LVP_SMART_TURN=true) — smart-turn-v3 ONNX, ~8MB
+onnxruntime>=1.18
+soxr>=0.5
+
 # STT
 faster-whisper>=1.0
 # mlx-whisper>=0.4   # Apple Silicon only (3x faster) — installed by setup.sh if arm64

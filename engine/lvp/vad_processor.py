@@ -26,8 +26,20 @@ SAMPLE_RATE = 16000
 
 
 class VADProcessor(FrameProcessor):
+    """
+    Voice activity detection + turn detection.
+
+    Two turn-detection modes:
+      - silence-based (default): close the turn after `silence_gap_ms` of silence.
+      - semantic (smart_turn=True): a short silence (`silence_gap_ms`) *triggers* a
+        semantic check; the ML model decides if the turn is really complete. If not,
+        keep listening until real completion or the `hard_stop_secs` fallback.
+    Semantic mode is what makes "I'd like a… [pause] …coffee" not get cut off.
+    """
+
     def __init__(self, silence_gap_ms=250, min_utterance_ms=250, threshold=0.5,
-                 bot_speaking_getter=None, name=None):
+                 bot_speaking_getter=None, smart_turn=False, hard_stop_secs=3.0,
+                 name=None):
         super().__init__(name)
         from silero_vad import load_silero_vad
         import torch
@@ -39,8 +51,19 @@ class VADProcessor(FrameProcessor):
         self.threshold = threshold
         self.silence_gap_ms = silence_gap_ms
         self.min_utterance_ms = min_utterance_ms
+        self.hard_stop_ms = hard_stop_secs * 1000
         # callback que diz se o bot está falando (pra barge-in)
         self._bot_speaking = bot_speaking_getter or (lambda: False)
+
+        # Semantic turn detector (lazy — only loaded if enabled)
+        self._smart_turn = None
+        if smart_turn:
+            try:
+                from .smart_turn import SmartTurnDetector
+                self._smart_turn = SmartTurnDetector()
+                print('[vad] smart-turn (semantic) enabled', flush=True)
+            except Exception as e:
+                print(f'[vad] smart-turn unavailable, falling back to silence-based: {e}', flush=True)
 
         self._buf = np.zeros(0, dtype=np.int16)
         self._frames = []
@@ -48,6 +71,7 @@ class VADProcessor(FrameProcessor):
         self._speaking = False
         self._start_ts = 0.0
         self._interrupted_this_turn = False
+        self._smart_checked = False  # já rodou o smart-turn nesta pausa?
 
     def _is_speech(self, frame_int16):
         if len(frame_int16) != VAD_FRAME_SIZE:
@@ -87,16 +111,39 @@ class VADProcessor(FrameProcessor):
                     await self.push_frame(UserStartedSpeakingFrame(), Direction.DOWNSTREAM)
                 self._frames.append(chunk)
                 self._silence_frames = 0
+                self._smart_checked = False  # voltou a falar → reseta o check semântico
             else:
                 if self._speaking:
                     self._frames.append(chunk)
                     self._silence_frames += 1
 
-            # Fecha utterance?
+            # Turn detection
             if self._speaking:
                 silence_ms = (self._silence_frames * VAD_FRAME_SIZE * 1000) // SAMPLE_RATE
-                if silence_ms >= self.silence_gap_ms:
-                    await self._close_utterance()
+
+                if self._smart_turn is not None:
+                    # Semantic: short silence triggers the ML check once; hard-stop is the fallback.
+                    if silence_ms >= self.hard_stop_ms:
+                        await self._close_utterance()
+                    elif silence_ms >= self.silence_gap_ms and not self._smart_checked:
+                        self._smart_checked = True
+                        if self._semantic_turn_complete():
+                            await self._close_utterance()
+                        # incomplete → keep listening (waits for more speech or hard-stop)
+                else:
+                    # Silence-based: close after the gap.
+                    if silence_ms >= self.silence_gap_ms:
+                        await self._close_utterance()
+
+    def _semantic_turn_complete(self) -> bool:
+        """Run the smart-turn model on the accumulated audio (last 8 s)."""
+        try:
+            pcm = np.concatenate(self._frames).astype(np.float32) / 32768.0
+            complete, prob = self._smart_turn.is_turn_complete(pcm)
+            return complete
+        except Exception as e:
+            print(f'[vad] smart-turn inference failed, closing turn: {e}', flush=True)
+            return True  # fail-safe: close rather than hang
 
     async def _close_utterance(self):
         total = sum(len(f) for f in self._frames)
@@ -120,4 +167,5 @@ class VADProcessor(FrameProcessor):
         self._silence_frames = 0
         self._speaking = False
         self._interrupted_this_turn = False
+        self._smart_checked = False
         self._buf = np.zeros(0, dtype=np.int16)
