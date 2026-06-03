@@ -67,3 +67,25 @@ def test_min_volume_gate_rejects_quiet():
     vad = _vad(min_volume=0.5)
     quiet = np.zeros(VAD_FRAME_SIZE, dtype=np.int16)
     assert vad._is_speech(quiet) is False   # rms 0 < 0.5 → rejected before the model
+
+
+# ─── barge-in policy (allow_interruptions / InterruptionStrategy) ─────
+
+from lvp.frames import InterruptionFrame                  # noqa: E402
+from lvp.interruptions import MinSpeechDurationStrategy    # noqa: E402
+
+
+def test_allow_interruptions_false_never_barges():
+    vad = _vad(start_secs=0.0, allow_interruptions=False)
+    vad._bot_speaking = lambda: True            # bot is talking
+    sink = _run_seq(vad, [True, True, True])    # user talks over it
+    assert of_type(sink.out, InterruptionFrame) == []   # no barge-in
+
+
+def test_min_speech_duration_strategy_delays_barge():
+    # require ~96ms (3 frames @ ~32ms) of sustained voice before interrupting
+    vad = _vad(start_secs=0.0, interruption_strategy=MinSpeechDurationStrategy(min_ms=90))
+    vad._bot_speaking = lambda: True
+    sink = _run_seq(vad, [True, True, True, True])
+    ints = of_type(sink.out, InterruptionFrame)
+    assert len(ints) == 1   # fired once, only after enough sustained speech

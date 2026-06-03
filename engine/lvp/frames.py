@@ -132,6 +132,17 @@ class WordTimestampFrame(Frame):
     time: float = 0.0
 
 
+@dataclass
+class TranscriptionUpdateFrame(Frame):
+    """
+    A newly appended conversation message {role, content, ts}, emitted by the
+    TranscriptProcessor whenever the running transcript grows. For UI/logging/audit.
+    """
+    role: str = ''
+    content: str = ''
+    at: float = 0.0
+
+
 # ─── LLM ─────────────────────────────────────────────────────────────
 
 @dataclass

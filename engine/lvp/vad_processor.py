@@ -65,8 +65,13 @@ class VADProcessor(FrameProcessor):
 
     def __init__(self, silence_gap_ms=250, min_utterance_ms=250, threshold=0.5,
                  bot_speaking_getter=None, smart_turn=False, hard_stop_secs=3.0,
-                 partial_interval_ms=0, start_secs=0.0, min_volume=0.0, name=None):
+                 partial_interval_ms=0, start_secs=0.0, min_volume=0.0,
+                 interruption_strategy=None, allow_interruptions=True, name=None):
         super().__init__(name)
+        # Barge-in policy: whether the user can interrupt the bot, and (if so) how decisive
+        # their speech must be. None strategy = interrupt on the first voiced frame (legacy).
+        self.allow_interruptions = allow_interruptions
+        self.interruption_strategy = interruption_strategy
         from silero_vad import load_silero_vad
         import torch
         self._torch = torch
@@ -145,10 +150,22 @@ class VADProcessor(FrameProcessor):
             self._buf = self._buf[VAD_FRAME_SIZE:]
             speech = self._is_speech(chunk)
 
-            # Barge-in: user fala enquanto bot responde → interrompe
-            if speech and self._bot_speaking() and not self._interrupted_this_turn:
-                self._interrupted_this_turn = True
-                await self.push_frame(InterruptionFrame(), Direction.DOWNSTREAM)
+            # Barge-in: user fala enquanto bot responde → interrompe (se permitido + a
+            # estratégia considerar a fala intencional o suficiente).
+            if self.allow_interruptions and self._bot_speaking() and not self._interrupted_this_turn:
+                strat = self.interruption_strategy
+                if speech:
+                    fire = True
+                    if strat is not None:
+                        strat.append_audio(FRAME_MS)
+                        fire = strat.should_interrupt()
+                    if fire:
+                        self._interrupted_this_turn = True
+                        if strat is not None:
+                            strat.reset()
+                        await self.push_frame(InterruptionFrame(), Direction.DOWNSTREAM)
+            elif self.interruption_strategy is not None and not self._bot_speaking():
+                self.interruption_strategy.reset()   # bot silent → forget accumulated voice
 
             # ── State machine: QUIET → STARTING → SPEAKING → STOPPING ──
             if self._state == VADState.QUIET:

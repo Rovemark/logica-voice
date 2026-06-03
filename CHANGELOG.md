@@ -8,6 +8,36 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and adh
 
 ## [Unreleased]
 
+### Added — production refinements (the last Pipecat-parity gaps)
+- **STTMuteFilter** (`filters`) — drop input audio while the bot speaks / runs a tool /
+  until its first turn completes (strategies: `always`, `until_first_bot`, `function_call`,
+  `custom`). Stops the bot transcribing itself and being barged by room noise mid-tool.
+- **Context aggregators** (`context_aggregator`) — `UserContextAggregator` fuses fragmented
+  streaming-STT finals into one clean turn (aggregation timeout); `AssistantContextAggregator`
+  records the assistant turn into the LLMContext (committing partials on interruption).
+- **Interruption strategies** (`interruptions`) — decide when speech really counts as barge-in:
+  `MinSpeechDurationStrategy` (N ms of sustained voice), `MinWordsInterruptionStrategy`,
+  `AlwaysInterruptStrategy`. Wired into the VAD; `allow_interruptions` can disable barge-in.
+- **TranscriptProcessor** (`transcript`) — structured running transcript ({role, content, at})
+  with a `TranscriptionUpdateFrame` + `on_update` callback per new message.
+- **PipelineParams** (`params`) — one dataclass for global switches (`allow_interruptions`,
+  metrics, heartbeat, watchdog, VAD gates…), with `from_env()`.
+- **WatchdogObserver** (`watchdog`) — detects a stalled pipeline via heartbeat round-trip and
+  names the stage it got stuck after.
+- **GatedProcessor** (`filters`) — hold frames until a gate opens, then flush in order
+  (e.g. don't speak until an image-gen tool returns).
+- **ProtobufFrameSerializer** (`serializers`) — compact binary serialization with the schema
+  built in-process at runtime (no .proto file, no protoc); audio rides as raw bytes.
+- **More carriers** (`telephony`) — Telnyx, Plivo and Exotel serializers alongside Twilio
+  (μ-law for Twilio/Telnyx/Plivo; raw linear PCM for Exotel).
+
+### Changed
+- **VAD barge-in** now consults an InterruptionStrategy + `allow_interruptions` before firing.
+- **runner** wires it all via env: `LVP_STT_MUTE`, `LVP_ALLOW_INTERRUPTIONS`,
+  `LVP_INTERRUPTION_MIN_MS`, `LVP_WATCHDOG_SECS`.
+- Test suite grew to **93 tests** (32 new for groups D+E); fixed JSON-vs-Protobuf size
+  comparison and an unused-import sweep.
+
 ### Added — LVP engine parity (drivers + advanced processors)
 - **Streaming STT** (`streaming_stt`) — WebSocket adapter emitting real interim transcriptions as you speak (vs batch-per-turn).
 - **Token-streaming TTS** (`streaming_tts`) — WebSocket adapter pushing audio chunks while text generates.

@@ -28,6 +28,9 @@ from .tts_processor import SentenceAggregator, TTSProcessor
 from .transport import TransportOutput
 from .metrics import MetricsCollector
 from .rtvi import RTVIObserver
+from .filters import STTMuteFilter, STTMuteStrategy
+from .interruptions import MinSpeechDurationStrategy
+from .watchdog import WatchdogObserver
 
 ECHO_TAIL_MS = int(os.environ.get('LVP_ECHO_TAIL_MS', '800'))
 SILENCE_GAP_MS = int(os.environ.get('LVP_SILENCE_GAP_MS', '250'))
@@ -47,6 +50,29 @@ RTVI = os.environ.get('LVP_RTVI', 'false').lower() in ('1', 'true', 'yes')
 # VAD onset confirmation (rejects clicks/coughs) + volume gate (rejects steady noise).
 VAD_START_SECS = float(os.environ.get('LVP_VAD_START_SECS', '0'))
 VAD_MIN_VOLUME = float(os.environ.get('LVP_VAD_MIN_VOLUME', '0'))
+# Barge-in policy: turn it off entirely, or require N ms of sustained speech to count.
+ALLOW_INTERRUPTIONS = os.environ.get('LVP_ALLOW_INTERRUPTIONS', 'true').lower() in ('1', 'true', 'yes')
+INTERRUPTION_MIN_MS = float(os.environ.get('LVP_INTERRUPTION_MIN_MS', '0'))
+# STT mute: drop input audio while the bot speaks / runs a tool. Comma list of strategies:
+# always | until_first_bot | function_call. Empty = off.
+STT_MUTE = os.environ.get('LVP_STT_MUTE', '')
+# Watchdog: warn if a heartbeat doesn't traverse the pipeline within N s (0 = off).
+WATCHDOG_SECS = float(os.environ.get('LVP_WATCHDOG_SECS', '0'))
+
+_MUTE_MAP = {
+    'always': STTMuteStrategy.ALWAYS_WHILE_BOT_SPEAKS,
+    'until_first_bot': STTMuteStrategy.UNTIL_FIRST_BOT_COMPLETE,
+    'function_call': STTMuteStrategy.FUNCTION_CALL,
+}
+
+
+def _mute_strategies():
+    out = []
+    for tok in STT_MUTE.split(','):
+        s = _MUTE_MAP.get(tok.strip().lower())
+        if s:
+            out.append(s)
+    return out
 
 
 class LVPSession:
@@ -64,24 +90,36 @@ class LVPSession:
             dur_s = nbytes / 2 / 24000  # int16, 24kHz
             self._bot_speaking_until = max(self._bot_speaking_until, time.time()) + dur_s + ECHO_TAIL_MS / 1000.0
 
+        barge_strategy = MinSpeechDurationStrategy(INTERRUPTION_MIN_MS) if INTERRUPTION_MIN_MS > 0 else None
         self.vad = VADProcessor(
             silence_gap_ms=SILENCE_GAP_MS, bot_speaking_getter=bot_speaking,
             smart_turn=SMART_TURN, hard_stop_secs=HARD_STOP_SECS,
             partial_interval_ms=PARTIAL_MS,
             start_secs=VAD_START_SECS, min_volume=VAD_MIN_VOLUME,
+            allow_interruptions=ALLOW_INTERRUPTIONS, interruption_strategy=barge_strategy,
         )
         observers = [MetricsCollector(log=True)] if METRICS else []
         self.rtvi = RTVIObserver(ws) if RTVI else None
         if self.rtvi:
             observers.append(self.rtvi)
-        self.pipeline = Pipeline([
+        self.watchdog = None
+        if WATCHDOG_SECS > 0:
+            self.watchdog = WatchdogObserver(tail_name='TransportOutput', timeout_secs=WATCHDOG_SECS)
+            observers.append(self.watchdog)
+
+        stages = []
+        mute = _mute_strategies()
+        if mute:
+            stages.append(STTMuteFilter(strategies=mute))   # before VAD: muted audio dropped
+        stages += [
             self.vad,
             STTProcessor(),
             LLMProcessor(),
             SentenceAggregator(),
             TTSProcessor(url=TTS_URL, voice=TTS_VOICE, engine=TTS_ENGINE),
             TransportOutput(ws, on_bot_audio=on_bot_audio),
-        ], observers=observers)
+        ]
+        self.pipeline = Pipeline(stages, observers=observers)
 
     async def feed_audio(self, pcm: bytes):
         # Echo guard: ignora entrada enquanto bot fala (exceto pra barge-in, que o
@@ -116,6 +154,8 @@ async def handle_connection(websocket):
                 seq = 0
                 while True:
                     await asyncio.sleep(hb_secs)
+                    if session.watchdog:
+                        session.watchdog.check()   # did the previous pulse complete?
                     seq += 1
                     await session.pipeline.push(HeartbeatFrame(seq=seq), Direction.DOWNSTREAM)
             hb_task = asyncio.create_task(_heartbeat())

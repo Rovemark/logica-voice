@@ -103,11 +103,18 @@ engine/
 │   ├── tts_processor.py     sentence aggregator + text-to-speech
 │   ├── streaming_tts.py     WebSocket token-streaming TTS
 │   ├── context.py           multi-turn memory + conversation summarization
-│   ├── filters.py           wake word ("Astro"/"Jarvis") + frame gates
+│   ├── context_aggregator.py fuse fragmented turns → clean LLMContext
+│   ├── filters.py           wake word · STT-mute · gated · frame gates
 │   ├── aggregators.py       hide <thinking> · DTMF→turn · word timestamps
+│   ├── interruptions.py     barge-in strategies (min duration / min words)
+│   ├── transcript.py        structured running transcript + events
+│   ├── params.py            PipelineParams — global switches
+│   ├── watchdog.py          stalled-pipeline detection (heartbeat round-trip)
 │   ├── audio_mixer.py       background music / hold bed
 │   ├── memory.py            long-term memory across sessions
 │   ├── sync.py              Producer/Consumer — frames across pipelines
+│   ├── serializers.py       JSON · Msgpack · Protobuf
+│   ├── telephony.py         Twilio · Telnyx · Plivo · Exotel + DTMF
 │   ├── transport.py         frames → WebSocket
 │   └── runner.py            wires the pipeline + echo guard
 └── servers/                 swappable model servers — pick your trade-off
@@ -136,9 +143,15 @@ pipeline.** That's the whole philosophy: small parts, clean seams, your choice a
 | 🔗 Direct LLM adapters with native tool calling | `llm_adapters` |
 | 🗣️ Token-streaming TTS (audio while it generates) | `streaming_tts` |
 | 💬 Wake word ("Astro"/"Jarvis", configurable) | `filters` |
+| 🙊 STT-mute while the bot speaks / runs a tool | `filters` |
+| 🧩 Turn aggregation — fuse fragmented STT into clean turns | `context_aggregator` |
 | 🤫 Hide `<thinking>` blocks from speech | `aggregators` |
+| 🛑 Barge-in strategies (min speech duration / min words) | `interruptions` |
+| 🎛️ PipelineParams — global switches (`allow_interruptions`…) | `params` |
 | ⏯️ Pause/resume + lifecycle frames (Start · Heartbeat) | `processor`, `frames` |
 | ✂️ Barge-in + priority frames (system frames never queue) | `processor`, `frames` |
+| 🐕 Watchdog — pinpoints the stalled stage | `watchdog` |
+| 🧾 Structured running transcript (+ update events) | `transcript` |
 | 📊 Latency metrics (TTFB per stage) | `metrics` |
 | 🔭 OpenTelemetry tracing (optional) | `tracing` |
 | 🎙️ Conversation recording (stereo user/bot WAV) | `recording` |
@@ -146,9 +159,10 @@ pipeline.** That's the whole philosophy: small parts, clean seams, your choice a
 | 🔇 Noise suppression (before VAD/STT) | `audio_filter` |
 | ⏰ User idle / re-engagement | `idle_processor` |
 | 🔌 RTVI protocol (standard client SDKs) | `rtvi` |
-| 📦 JSON / Msgpack serializers | `serializers` |
+| 📦 JSON / Msgpack / Protobuf serializers | `serializers` |
+| 🚧 Gated processor (hold frames until a gate opens) | `filters` |
 | 🌐 WebSocket + WebRTC transports | `transports` |
-| ☎️ Telephony (μ-law) + DTMF keypad → turn | `telephony`, `aggregators` |
+| ☎️ Telephony — Twilio · Telnyx · Plivo · Exotel + DTMF→turn | `telephony`, `aggregators` |
 | ⏱️ Word timestamps (karaoke-style highlight) | `aggregators`, `frames` |
 | 👁️ Vision/multimodal frames | `frames` |
 | 🔀 ParallelPipeline · service failover · Producer/Consumer | `advanced`, `sync` |

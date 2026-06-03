@@ -29,14 +29,21 @@ Modules:
   audio_filter  — noise suppression
   idle_processor— user idle / re-engagement
   advanced      — ParallelPipeline, ServiceSwitcher
-  filters       — WakeCheckFilter + frame gates
+  filters       — WakeCheckFilter / STTMuteFilter / GatedProcessor + frame gates
   aggregators   — PatternAggregator / DTMFAggregator / WordAggregator
+  context_aggregator — User/Assistant turn aggregation into LLMContext
+  interruptions — barge-in strategies (min speech duration / min words)
+  transcript    — structured running transcript + update events
+  params        — PipelineParams (global switches)
+  watchdog      — stalled-pipeline detection via heartbeat round-trip
   audio_mixer   — background music/hold bed
   memory        — LongTermMemory (mem0 / HTTP / in-proc)
   sync          — Producer/Consumer (cross-pipeline frames)
   streaming_stt — WebSocket streaming STT (interim real)
   streaming_tts — WebSocket token-streaming TTS
   llm_adapters  — direct Anthropic / Gemini (native tools)
+  serializers   — JSON / Msgpack / Protobuf frame serialization
+  telephony     — Twilio / Telnyx / Plivo / Exotel + DTMF
   runner        — wires it all + serves WebSocket
 
 Note: heavyweight processors (VAD/STT/TTS/LLM, which pull torch/onnx/aiohttp) are imported
@@ -54,14 +61,24 @@ from .frames import (
     InputDTMFFrame, OutputDTMFFrame, MetricsFrame,
     InterruptionFrame, CancelFrame, ErrorFrame, EndFrame, ControlFrame,
     StartFrame, HeartbeatFrame, TTSStartedFrame, TTSStoppedFrame, PauseFrame, ResumeFrame,
+    TranscriptionUpdateFrame,
 )
 from .processor import FrameProcessor, Pipeline, BaseObserver, Direction
 from .context import LLMContext
 from .tools import ToolRegistry
 from .filters import (
     WakeCheckFilter, FrameFilter, FunctionFilter, IdentityFilter, NullFilter,
+    STTMuteFilter, STTMuteStrategy, GatedProcessor,
 )
 from .aggregators import PatternAggregator, DTMFAggregator, WordAggregator
+from .context_aggregator import UserContextAggregator, AssistantContextAggregator
+from .interruptions import (
+    InterruptionStrategy, AlwaysInterruptStrategy,
+    MinSpeechDurationStrategy, MinWordsInterruptionStrategy,
+)
+from .transcript import TranscriptProcessor
+from .params import PipelineParams
+from .watchdog import WatchdogObserver
 from .audio_mixer import AudioMixer
 from .memory import LongTermMemory
 from .sync import ProducerProcessor, ConsumerProcessor
@@ -76,10 +93,15 @@ __all__ = [
     'InputDTMFFrame', 'OutputDTMFFrame', 'MetricsFrame',
     'InterruptionFrame', 'CancelFrame', 'ErrorFrame', 'EndFrame', 'ControlFrame',
     'StartFrame', 'HeartbeatFrame', 'TTSStartedFrame', 'TTSStoppedFrame',
-    'PauseFrame', 'ResumeFrame',
+    'PauseFrame', 'ResumeFrame', 'TranscriptionUpdateFrame',
     'FrameProcessor', 'Pipeline', 'BaseObserver', 'Direction',
     'LLMContext', 'ToolRegistry',
     'WakeCheckFilter', 'FrameFilter', 'FunctionFilter', 'IdentityFilter', 'NullFilter',
+    'STTMuteFilter', 'STTMuteStrategy', 'GatedProcessor',
     'PatternAggregator', 'DTMFAggregator', 'WordAggregator',
+    'UserContextAggregator', 'AssistantContextAggregator',
+    'InterruptionStrategy', 'AlwaysInterruptStrategy',
+    'MinSpeechDurationStrategy', 'MinWordsInterruptionStrategy',
+    'TranscriptProcessor', 'PipelineParams', 'WatchdogObserver',
     'AudioMixer', 'LongTermMemory', 'ProducerProcessor', 'ConsumerProcessor',
 ]
