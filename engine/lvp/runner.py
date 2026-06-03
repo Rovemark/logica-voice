@@ -27,6 +27,7 @@ from .llm_processor import LLMProcessor
 from .tts_processor import SentenceAggregator, TTSProcessor
 from .transport import TransportOutput
 from .metrics import MetricsCollector
+from .rtvi import RTVIObserver
 
 ECHO_TAIL_MS = int(os.environ.get('LVP_ECHO_TAIL_MS', '800'))
 SILENCE_GAP_MS = int(os.environ.get('LVP_SILENCE_GAP_MS', '250'))
@@ -41,6 +42,8 @@ METRICS = os.environ.get('LVP_METRICS', 'true').lower() in ('1', 'true', 'yes')
 # STT streaming partials: emit interim transcriptions every N ms of speech.
 # 0 = off (default — runs Whisper once per turn). >0 costs extra STT calls.
 PARTIAL_MS = int(os.environ.get('LVP_STT_PARTIAL_MS', '0'))
+# RTVI protocol: emit standardized client/server events alongside the native protocol.
+RTVI = os.environ.get('LVP_RTVI', 'false').lower() in ('1', 'true', 'yes')
 
 
 class LVPSession:
@@ -64,6 +67,9 @@ class LVPSession:
             partial_interval_ms=PARTIAL_MS,
         )
         observers = [MetricsCollector(log=True)] if METRICS else []
+        self.rtvi = RTVIObserver(ws) if RTVI else None
+        if self.rtvi:
+            observers.append(self.rtvi)
         self.pipeline = Pipeline([
             self.vad,
             STTProcessor(),
