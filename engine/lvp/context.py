@@ -61,6 +61,30 @@ class LLMContext:
         keep = tail[-(self.max_messages - len(head)):]
         self.messages = head + keep
 
+    async def summarize_old(self, summarizer, keep_recent=8):
+        """
+        Compress old turns into a single summary instead of dropping them (better than
+        trim for long conversations). `summarizer(text)` is an async callable returning
+        a short summary string. Keeps the system message + the last `keep_recent` turns.
+        """
+        if len(self.messages) <= keep_recent + 2:
+            return
+        head = [m for m in self.messages[:1] if m.get("role") == "system"]
+        tail = self.messages[len(head):]
+        if len(tail) <= keep_recent:
+            return
+        old, recent = tail[:-keep_recent], tail[-keep_recent:]
+        transcript = "\n".join(
+            f"{m.get('role')}: {m.get('content','')}" for m in old if m.get('content'))
+        try:
+            summary = await summarizer(transcript)
+        except Exception:
+            return  # summarizer failed — leave context as is
+        if summary:
+            self.messages = head + [
+                {"role": "system", "content": f"[Earlier conversation summary] {summary}"}
+            ] + recent
+
 
 def _to_text(obj):
     import json

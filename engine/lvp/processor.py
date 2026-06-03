@@ -23,13 +23,22 @@ class Direction(Enum):
 
 
 class FrameProcessor:
-    """Base de todo estágio do pipeline."""
+    """
+    Base de todo estágio do pipeline.
+
+    Priority model: SystemFrames (Interruption/Cancel/End/Start/Heartbeat…) are handled
+    IMMEDIATELY, bypassing any data-frame backlog. DataFrames are processed in order and
+    can be paused/resumed (held in a queue while paused). This keeps barge-in and control
+    snappy even when a processor is busy or paused.
+    """
 
     def __init__(self, name: str = None):
         self.name = name or self.__class__.__name__
         self._next: 'FrameProcessor' = None
         self._prev: 'FrameProcessor' = None
         self._tasks: set = set()
+        self._paused = False
+        self._data_queue: list = []   # data frames held while paused
 
     # ─── Encadeamento ────────────────────────────────────────────────
     def link(self, nxt: 'FrameProcessor'):
@@ -52,14 +61,15 @@ class FrameProcessor:
     # ─── Recebe frame — override no subclasse ────────────────────────
     async def process_frame(self, frame: Frame, direction: Direction):
         """
-        Default routing. System frames (Interruption/Cancel/End/Error) are high
-        priority: they cancel in-flight work and propagate immediately, so barge-in
-        and shutdown are never stuck behind a backlog of audio/text data frames.
-        Subclasses call super().process_frame() then handle their own data frames.
+        Default routing. System frames (high priority) are handled immediately and
+        bypass pause; data frames respect pause (queued until resume). Subclasses call
+        super().process_frame() then handle their own data frames.
         """
-        from .frames import SystemFrame, CancelFrame  # local import (avoid cycle)
+        from .frames import SystemFrame, CancelFrame, PauseFrame, ResumeFrame
+        # ── System frames: always immediate, even while paused ──
         if isinstance(frame, (InterruptionFrame, CancelFrame)):
             self._cancel_tasks()
+            self._data_queue.clear()   # drop queued data on interruption
             await self.push_frame(frame, direction)
             return
         if isinstance(frame, EndFrame):
@@ -67,12 +77,36 @@ class FrameProcessor:
             await self.on_end()
             await self.push_frame(frame, direction)
             return
-        if isinstance(frame, SystemFrame):
-            # Other system frames (e.g. ErrorFrame): propagate immediately, don't cancel.
+        if isinstance(frame, PauseFrame):
+            if not frame.target or frame.target == self.name:
+                self._paused = True
             await self.push_frame(frame, direction)
             return
-        # Default: repassa data/control frames
+        if isinstance(frame, ResumeFrame):
+            if not frame.target or frame.target == self.name:
+                await self._resume()
+            await self.push_frame(frame, direction)
+            return
+        if isinstance(frame, SystemFrame):
+            await self.push_frame(frame, direction)
+            return
+        # ── Data/control frames: respect pause ──
+        if self._paused:
+            self._data_queue.append((frame, direction))
+            return
         await self.push_frame(frame, direction)
+
+    async def pause(self):
+        self._paused = True
+
+    async def resume(self):
+        await self._resume()
+
+    async def _resume(self):
+        self._paused = False
+        queued, self._data_queue = self._data_queue, []
+        for frame, direction in queued:
+            await self.push_frame(frame, direction)
 
     # ─── Task helper (cancelável na interrupção) ─────────────────────
     def _spawn(self, coro):

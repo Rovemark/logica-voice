@@ -204,3 +204,42 @@ class ErrorFrame(SystemFrame):
 class EndFrame(SystemFrame):
     """Fim da sessão. Cada processor faz cleanup."""
     pass
+
+
+@dataclass
+class StartFrame(SystemFrame):
+    """Boot: propaga config (sample rates, flags) por todo o pipeline no início."""
+    sample_rate_in: int = 16000
+    sample_rate_out: int = 24000
+    enable_metrics: bool = True
+    data: dict = field(default_factory=dict)
+
+
+@dataclass
+class HeartbeatFrame(SystemFrame):
+    """Pulso periódico — mede saúde/latência do pipeline (detecta travamento)."""
+    seq: int = 0
+
+
+@dataclass
+class TTSStartedFrame(SystemFrame):
+    """O bot começou a falar (primeiro chunk de áudio de uma resposta)."""
+    pass
+
+
+@dataclass
+class TTSStoppedFrame(SystemFrame):
+    """O bot terminou de falar."""
+    pass
+
+
+@dataclass
+class PauseFrame(SystemFrame):
+    """Pausa o processamento de data frames num processor (system frames continuam)."""
+    target: str = ''   # nome do processor; '' = todos
+
+
+@dataclass
+class ResumeFrame(SystemFrame):
+    """Retoma o processamento pausado."""
+    target: str = ''

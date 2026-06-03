@@ -95,10 +95,26 @@ class LVPSession:
 async def handle_connection(websocket):
     print(f'[lvp] cliente conectado: {websocket.remote_address}', flush=True)
     session = LVPSession(websocket)
+    hb_task = None
     try:
         await websocket.send(json.dumps({
             'type': 'ready', 'sample_rate_in': 16000, 'sample_rate_out': 24000, 'engine': 'lvp',
         }))
+        # StartFrame: propagate boot config through the whole pipeline.
+        from .frames import StartFrame, HeartbeatFrame
+        await session.pipeline.push(
+            StartFrame(sample_rate_in=16000, sample_rate_out=24000, enable_metrics=METRICS),
+            Direction.DOWNSTREAM)
+        # Heartbeat: periodic health pulse (detect a stuck pipeline).
+        hb_secs = float(os.environ.get('LVP_HEARTBEAT_SECS', '0'))
+        if hb_secs > 0:
+            async def _heartbeat():
+                seq = 0
+                while True:
+                    await asyncio.sleep(hb_secs)
+                    seq += 1
+                    await session.pipeline.push(HeartbeatFrame(seq=seq), Direction.DOWNSTREAM)
+            hb_task = asyncio.create_task(_heartbeat())
         async for message in websocket:
             if isinstance(message, bytes):
                 await session.feed_audio(message)
@@ -116,6 +132,8 @@ async def handle_connection(websocket):
     except Exception as e:
         print(f'[lvp] erro: {e}', flush=True)
     finally:
+        if hb_task:
+            hb_task.cancel()
         try:
             await session.end()
         except Exception:

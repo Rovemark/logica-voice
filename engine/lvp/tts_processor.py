@@ -21,7 +21,7 @@ import aiohttp
 from .processor import FrameProcessor, Direction
 from .frames import (
     LLMTokenFrame, LLMFullResponseFrame, TextSentenceFrame, AudioOutFrame,
-    InterruptionFrame, ErrorFrame,
+    TTSStartedFrame, TTSStoppedFrame, InterruptionFrame, ErrorFrame,
 )
 
 TTS_URL = os.environ.get('LVP_TTS_URL', 'http://127.0.0.1:8911')   # kokoro default (rápido)
@@ -141,9 +141,20 @@ class TTSProcessor(FrameProcessor):
             pass
 
     async def _run_worker(self):
+        self._speaking = False
         while True:
-            text = await self._queue.get()
             try:
+                # Wait for the next sentence; if the queue drains, mark TTS stopped.
+                try:
+                    text = await asyncio.wait_for(self._queue.get(), timeout=0.3)
+                except asyncio.TimeoutError:
+                    if self._speaking:
+                        self._speaking = False
+                        await self.push_frame(TTSStoppedFrame(), Direction.DOWNSTREAM)
+                    continue
+                if not self._speaking:
+                    self._speaking = True
+                    await self.push_frame(TTSStartedFrame(), Direction.DOWNSTREAM)
                 wav = await self._synthesize(text)
                 pcm = self._wav_to_pcm(wav)
                 await self.push_frame(AudioOutFrame(pcm=pcm, text=text), Direction.DOWNSTREAM)
