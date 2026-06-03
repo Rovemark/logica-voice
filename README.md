@@ -114,6 +114,29 @@ Frames flow downstream (`VAD → STT → LLM → aggregate → TTS → out`). An
 Every backend is an HTTP/SSE endpoint — swap STT, LLM or TTS **without touching the
 pipeline.** That's the whole philosophy: small parts, clean seams, your choice at every layer.
 
+### Everything the engine does
+
+| Capability | Module |
+|---|---|
+| 🎯 Semantic turn detection (knows you're not done talking, PT-BR) | `smart_turn` |
+| ⚡ Streaming STT (interim text as you speak) | `stt_processor` |
+| 🧠 Multi-turn memory (LLMContext) | `context` |
+| 🛠️ Function/tool calling (LLM → tool → LLM agent loop) | `tools` |
+| ✂️ Barge-in + priority frames (system frames never queue) | `processor`, `frames` |
+| 📊 Latency metrics (TTFB per stage) | `metrics` |
+| 🔭 OpenTelemetry tracing (optional) | `tracing` |
+| 🎙️ Conversation recording (stereo user/bot WAV) | `recording` |
+| 🔇 Noise suppression (before VAD/STT) | `audio_filter` |
+| ⏰ User idle / re-engagement | `idle_processor` |
+| 🔌 RTVI protocol (standard client SDKs) | `rtvi` |
+| 📦 JSON / Msgpack serializers | `serializers` |
+| 🌐 WebSocket + WebRTC transports | `transports` |
+| ☎️ Telephony (Twilio μ-law + DTMF) | `telephony` |
+| 👁️ Vision/multimodal frames | `frames` |
+| 🔀 ParallelPipeline + service failover | `advanced` |
+
+Full feature parity with the leading voice frameworks — **100% ours, all local, MIT.**
+
 ---
 
 ## 🎨 The full vision
