@@ -67,3 +67,6 @@ class TransportOutput(FrameProcessor):
                 return
         except Exception:
             pass  # WS pode ter fechado — ignora
+        # Frames we don't render (Heartbeat/Start/Pause/End/…) still flow through, so
+        # observers (e.g. the watchdog) see them reach the tail and mark them complete.
+        await super().process_frame(frame, direction)

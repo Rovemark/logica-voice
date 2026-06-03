@@ -8,6 +8,18 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and adh
 
 ## [Unreleased]
 
+### Added — end-to-end smoke harness
+- **`engine/smoke/`** — boots STT + TTS + a mock LLM (no API key) + the live pipeline,
+  pushes one synthetic spoken turn through it, and asserts the whole chain fired
+  (VAD → STT → LLM → TTS). `PYTHON=.venv/bin/python ./smoke/run.sh`. First real run was
+  green: STT transcribed the input verbatim, TTS returned 0.57 s of audio, total ~1.8 s.
+
+### Fixed
+- **transport**: the tail `TransportOutput` now forwards frames it doesn't render
+  (Heartbeat/Start/Pause/End/…) instead of swallowing them — found by the new watchdog,
+  which was reporting a false "stalled after TTSProcessor" because system frames never
+  reached the tail's observers. (The smoke is what surfaced it.)
+
 ### Added — production refinements (the last Pipecat-parity gaps)
 - **STTMuteFilter** (`filters`) — drop input audio while the bot speaks / runs a tool /
   until its first turn completes (strategies: `always`, `until_first_bot`, `function_call`,

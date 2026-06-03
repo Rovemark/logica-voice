@@ -84,6 +84,14 @@ The brain is **yours**. Point `LVP_LLM_URL` at any local model runner, a standar
 chat-completions endpoint, your own service, or [LogicaOS](https://logicaos.com). The
 engine knows nothing about your intelligence layer — it just streams audio in and voice out.
 
+**Prove it end-to-end** (no API key — uses a mock brain):
+
+```bash
+PYTHON=.venv/bin/python ./smoke/run.sh
+# → boots STT + TTS + mock LLM + the pipeline, pushes one spoken turn through it,
+#   prints  CHAIN COMPLETE (VAD→STT→LLM→TTS): ✅ YES
+```
+
 ---
 
 ## 🧩 Architecture
