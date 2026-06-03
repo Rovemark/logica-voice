@@ -1,5 +1,6 @@
 packages:
   - 'packages/core'
+  - 'packages/client'
   - 'packages/adapters/*'
   - 'packages/brain/*'
   - 'packages/voice/*'
