@@ -18,11 +18,20 @@ import numpy as np
 from .processor import FrameProcessor, Direction
 from .frames import (
     AudioInFrame, UserStartedSpeakingFrame, UserStoppedSpeakingFrame,
-    InterruptionFrame, ControlFrame,
+    PartialUtteranceFrame, InterruptionFrame, ControlFrame,
 )
 
 VAD_FRAME_SIZE = 512  # 32ms @ 16kHz (Silero exige 512)
 SAMPLE_RATE = 16000
+
+
+def _frames_to_wav(frames):
+    pcm = np.concatenate(frames)
+    buf = io.BytesIO()
+    with wave.open(buf, 'wb') as wf:
+        wf.setnchannels(1); wf.setsampwidth(2); wf.setframerate(SAMPLE_RATE)
+        wf.writeframes(pcm.tobytes())
+    return buf.getvalue()
 
 
 class VADProcessor(FrameProcessor):
@@ -39,7 +48,7 @@ class VADProcessor(FrameProcessor):
 
     def __init__(self, silence_gap_ms=250, min_utterance_ms=250, threshold=0.5,
                  bot_speaking_getter=None, smart_turn=False, hard_stop_secs=3.0,
-                 name=None):
+                 partial_interval_ms=0, name=None):
         super().__init__(name)
         from silero_vad import load_silero_vad
         import torch
@@ -52,6 +61,10 @@ class VADProcessor(FrameProcessor):
         self.silence_gap_ms = silence_gap_ms
         self.min_utterance_ms = min_utterance_ms
         self.hard_stop_ms = hard_stop_secs * 1000
+        # STT streaming: if > 0, emit a partial-audio frame every N ms of speech
+        # so the STT can produce interim transcriptions (text appears as you talk).
+        self.partial_interval_ms = partial_interval_ms
+        self._last_partial_frames = 0
         # callback que diz se o bot está falando (pra barge-in)
         self._bot_speaking = bot_speaking_getter or (lambda: False)
 
@@ -108,10 +121,23 @@ class VADProcessor(FrameProcessor):
                     self._speaking = True
                     self._start_ts = time.time()
                     self._frames = []
+                    self._last_partial_frames = 0
                     await self.push_frame(UserStartedSpeakingFrame(), Direction.DOWNSTREAM)
                 self._frames.append(chunk)
                 self._silence_frames = 0
                 self._smart_checked = False  # voltou a falar → reseta o check semântico
+
+                # STT streaming: emit a partial every partial_interval_ms of speech
+                if self.partial_interval_ms > 0:
+                    nframes = len(self._frames)
+                    elapsed = (nframes * VAD_FRAME_SIZE * 1000) // SAMPLE_RATE
+                    last_elapsed = (self._last_partial_frames * VAD_FRAME_SIZE * 1000) // SAMPLE_RATE
+                    if elapsed - last_elapsed >= self.partial_interval_ms:
+                        self._last_partial_frames = nframes
+                        await self.push_frame(
+                            PartialUtteranceFrame(audio_wav=_frames_to_wav(self._frames), duration_ms=elapsed),
+                            Direction.DOWNSTREAM,
+                        )
             else:
                 if self._speaking:
                     self._frames.append(chunk)
@@ -152,13 +178,8 @@ class VADProcessor(FrameProcessor):
         self._reset()
         if dur_ms < self.min_utterance_ms:
             return  # ruído curto
-        pcm = np.concatenate(frames)
-        buf = io.BytesIO()
-        with wave.open(buf, 'wb') as wf:
-            wf.setnchannels(1); wf.setsampwidth(2); wf.setframerate(SAMPLE_RATE)
-            wf.writeframes(pcm.tobytes())
         await self.push_frame(
-            UserStoppedSpeakingFrame(audio_wav=buf.getvalue(), duration_ms=dur_ms),
+            UserStoppedSpeakingFrame(audio_wav=_frames_to_wav(frames), duration_ms=dur_ms),
             Direction.DOWNSTREAM,
         )
 

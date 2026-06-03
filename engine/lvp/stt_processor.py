@@ -14,7 +14,10 @@ import os
 import aiohttp
 
 from .processor import FrameProcessor, Direction
-from .frames import UserStoppedSpeakingFrame, TranscriptionFrame, InterruptionFrame, ErrorFrame
+from .frames import (
+    UserStoppedSpeakingFrame, PartialUtteranceFrame, TranscriptionFrame,
+    InterimTranscriptionFrame, InterruptionFrame, ErrorFrame,
+)
 
 STT_URL = os.environ.get('LVP_STT_URL', 'http://127.0.0.1:8910')
 STT_LANG = os.environ.get('LVP_STT_LANG', 'pt')
@@ -31,12 +34,16 @@ class STTProcessor(FrameProcessor):
             self._cancel_tasks()
             await self.push_frame(frame, direction)
             return
+        if isinstance(frame, PartialUtteranceFrame):
+            # Interim transcription (streaming) — text appears as the user talks.
+            self._spawn(self._transcribe(frame.audio_wav, final=False))
+            return
         if isinstance(frame, UserStoppedSpeakingFrame):
-            self._spawn(self._transcribe(frame.audio_wav))
+            self._spawn(self._transcribe(frame.audio_wav, final=True))
             return
         await super().process_frame(frame, direction)
 
-    async def _transcribe(self, wav_bytes):
+    async def _transcribe(self, wav_bytes, final=True):
         try:
             form = aiohttp.FormData()
             form.add_field('audio', wav_bytes, filename='audio.wav', content_type='audio/wav')
@@ -49,6 +56,10 @@ class STTProcessor(FrameProcessor):
                     data = await r.json()
             text = (data.get('text') or '').strip()
             if text and len(text) >= 2:
-                await self.push_frame(TranscriptionFrame(text=text), Direction.DOWNSTREAM)
+                if final:
+                    await self.push_frame(TranscriptionFrame(text=text), Direction.DOWNSTREAM)
+                else:
+                    await self.push_frame(InterimTranscriptionFrame(text=text), Direction.DOWNSTREAM)
         except Exception as e:
-            await self.push_frame(ErrorFrame(message=str(e), source=self.name), Direction.DOWNSTREAM)
+            if final:  # interim errors are silent (next partial retries)
+                await self.push_frame(ErrorFrame(message=str(e), source=self.name), Direction.DOWNSTREAM)

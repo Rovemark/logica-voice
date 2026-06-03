@@ -45,6 +45,13 @@ class UserStartedSpeakingFrame(Frame):
 
 
 @dataclass
+class PartialUtteranceFrame(Frame):
+    """Áudio parcial enquanto o user AINDA fala — pra STT transcrever interim (streaming)."""
+    audio_wav: bytes = b''
+    duration_ms: int = 0
+
+
+@dataclass
 class UserStoppedSpeakingFrame(Frame):
     """VAD detectou fim de fala (silêncio > threshold). Carrega o áudio acumulado."""
     audio_wav: bytes = b''

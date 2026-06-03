@@ -38,6 +38,9 @@ SMART_TURN = os.environ.get('LVP_SMART_TURN', 'false').lower() in ('1', 'true', 
 HARD_STOP_SECS = float(os.environ.get('LVP_HARD_STOP_SECS', '3.0'))
 # Latency metrics: on by default (cheap); LVP_METRICS=false to silence.
 METRICS = os.environ.get('LVP_METRICS', 'true').lower() in ('1', 'true', 'yes')
+# STT streaming partials: emit interim transcriptions every N ms of speech.
+# 0 = off (default — runs Whisper once per turn). >0 costs extra STT calls.
+PARTIAL_MS = int(os.environ.get('LVP_STT_PARTIAL_MS', '0'))
 
 
 class LVPSession:
@@ -58,6 +61,7 @@ class LVPSession:
         self.vad = VADProcessor(
             silence_gap_ms=SILENCE_GAP_MS, bot_speaking_getter=bot_speaking,
             smart_turn=SMART_TURN, hard_stop_secs=HARD_STOP_SECS,
+            partial_interval_ms=PARTIAL_MS,
         )
         observers = [MetricsCollector(log=True)] if METRICS else []
         self.pipeline = Pipeline([
