@@ -20,3 +20,16 @@ jobs:
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r typecheck
+
+  engine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      # Core suite only — no torch/model downloads. test_vad.py auto-skips when
+      # torch + silero_vad are absent (see tests/test_vad.py importorskip).
+      - run: pip install -r engine/requirements-dev.txt
+      - run: pytest engine/tests

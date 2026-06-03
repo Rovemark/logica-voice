@@ -9,7 +9,6 @@ Generic: load any mono PCM16 @ sample_rate. No external services.
 """
 
 import os
-import io
 import wave
 import numpy as np
 
@@ -47,15 +46,13 @@ class AudioMixer(FrameProcessor):
                 sr = wf.getframerate()
                 ch = wf.getnchannels()
                 pcm = wf.readframes(wf.getnframes())
-            arr = np.frombuffer(pcm, dtype=np.int16).astype(np.float32)
+            arr = np.frombuffer(pcm, dtype=np.int16)
             if ch == 2:
-                arr = arr.reshape(-1, 2).mean(axis=1)
+                arr = arr.reshape(-1, 2).mean(axis=1).astype(np.int16)
             if sr != self.sample_rate:
-                ratio = self.sample_rate / sr
-                idx = np.minimum((np.arange(int(len(arr) * ratio)) / ratio).astype(np.int64),
-                                 len(arr) - 1)
-                arr = arr[idx]
-            return arr
+                from .audio_util import resample_int16
+                arr = resample_int16(arr, sr, self.sample_rate)
+            return arr.astype(np.float32)
         except Exception:
             return None
 

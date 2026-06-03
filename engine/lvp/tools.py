@@ -18,6 +18,7 @@ Register a tool:
 """
 
 import asyncio
+import inspect
 import json
 
 
@@ -56,7 +57,7 @@ class ToolRegistry:
         if handler is None:
             return {"error": f"unknown tool: {name}"}
         try:
-            if asyncio.iscoroutinefunction(handler):
+            if inspect.iscoroutinefunction(handler):
                 return await asyncio.wait_for(handler(args), timeout=timeout)
             return handler(args)
         except asyncio.TimeoutError:

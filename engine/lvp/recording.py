@@ -24,10 +24,8 @@ _SR = 24000  # common output rate
 def _resample_to_24k(pcm_i16: np.ndarray, src_sr: int) -> np.ndarray:
     if src_sr == _SR:
         return pcm_i16
-    ratio = _SR / src_sr
-    idx = np.minimum((np.arange(int(len(pcm_i16) * ratio)) / ratio).astype(np.int64),
-                     len(pcm_i16) - 1)
-    return pcm_i16[idx]
+    from .audio_util import resample_int16
+    return resample_int16(pcm_i16, src_sr, _SR)
 
 
 class AudioBufferProcessor(FrameProcessor):

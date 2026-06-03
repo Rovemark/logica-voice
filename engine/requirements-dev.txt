@@ -1,0 +1,9 @@
+# Minimal deps to run the CORE test suite (everything except test_vad.py) — no torch,
+# no model downloads, fast in CI. test_vad.py is auto-skipped unless torch + silero_vad
+# are present; for the full local run also: pip install -r requirements.txt
+numpy>=1.26
+scipy>=1.13
+soxr>=0.5
+aiohttp>=3.10
+websockets>=14
+pytest>=8.0

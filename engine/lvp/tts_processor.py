@@ -194,7 +194,6 @@ class TTSProcessor(FrameProcessor):
         if sr == SAMPLE_RATE_OUT:
             return pcm
         import numpy as np
+        from .audio_util import resample_int16
         src = np.frombuffer(pcm, dtype=np.int16)
-        ratio = SAMPLE_RATE_OUT / sr
-        idx = np.minimum((np.arange(int(len(src) * ratio)) / ratio).astype(np.int64), len(src) - 1)
-        return src[idx].tobytes()
+        return resample_int16(src, sr, SAMPLE_RATE_OUT).tobytes()

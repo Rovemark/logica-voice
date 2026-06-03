@@ -16,10 +16,10 @@ Sits BEFORE the LLM. On TranscriptionFrame it retrieves; after the assistant ans
 """
 
 import os
-import json
+import re
 import aiohttp
 
-from .processor import FrameProcessor, Direction
+from .processor import FrameProcessor
 from .frames import TranscriptionFrame, LLMFullResponseFrame, InterruptionFrame
 
 MEMORY_URL = os.environ.get('LVP_MEMORY_URL', '')
@@ -137,10 +137,15 @@ class InProcessMemoryBackend:
     def __init__(self):
         self._store = {}   # user_id -> [text]
 
+    @staticmethod
+    def _tokens(s):
+        # word-only tokens, lowercased — so "meetings?" matches "meetings"
+        return set(re.findall(r'\w+', s.lower()))
+
     async def search(self, query, user_id, top_k):
         items = self._store.get(user_id, [])
-        q = set(query.lower().split())
-        scored = [(len(q & set(t.lower().split())), t) for t in items]
+        q = self._tokens(query)
+        scored = [(len(q & self._tokens(t)), t) for t in items]
         scored = [t for n, t in sorted(scored, key=lambda x: -x[0]) if n > 0]
         return scored[:top_k]
 
