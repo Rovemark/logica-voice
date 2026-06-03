@@ -20,9 +20,12 @@ import aiohttp
 from .processor import FrameProcessor, Direction
 from .frames import (
     TranscriptionFrame, LLMTokenFrame, LLMFullResponseFrame,
-    InterruptionFrame, ErrorFrame,
+    FunctionCallFrame, FunctionCallResultFrame, InterruptionFrame, ErrorFrame,
 )
 from .context import LLMContext
+from .tools import parse_streaming_tool_calls, finalize_tool_calls
+
+MAX_TOOL_ROUNDS = int(os.environ.get('LVP_MAX_TOOL_ROUNDS', '5'))
 
 # Default points to a local OpenAI-compatible endpoint (Ollama). Override LVP_LLM_URL
 # with your own SSE endpoint — the engine is brain-agnostic.
@@ -40,13 +43,16 @@ class LLMProcessor(FrameProcessor):
     tool-calling (FASE 2.2); otherwise one is created.
     """
 
-    def __init__(self, url=LLM_URL, agent=LLM_AGENT, context=None, name=None):
+    def __init__(self, url=LLM_URL, agent=LLM_AGENT, context=None, registry=None, name=None):
         super().__init__(name)
         self.url = url
         self.agent = agent
+        self.registry = registry   # ToolRegistry or None
         self.context = context or LLMContext(
             system=LLM_SYSTEM or None, max_messages=MAX_HISTORY,
         )
+        if registry is not None:
+            self.context.set_tools(registry.schemas())
 
     async def process_frame(self, frame, direction):
         if isinstance(frame, InterruptionFrame):
@@ -63,10 +69,35 @@ class LLMProcessor(FrameProcessor):
 
     async def _run(self, user_text):
         try:
-            full = await self._stream_llm(user_text)
-            if full:
-                self.context.add_assistant(full)
-                await self.push_frame(LLMFullResponseFrame(text=full), Direction.DOWNSTREAM)
+            # Tool loop: LLM may ask for tools, we run them, feed results back, repeat.
+            for _round in range(MAX_TOOL_ROUNDS):
+                full, tool_calls = await self._stream_llm(user_text)
+                if tool_calls and self.registry is not None:
+                    # record the assistant's tool request, run tools, append results
+                    self.context.add_assistant(full, tool_calls=[
+                        {'id': c['id'], 'type': 'function',
+                         'function': {'name': c['name'], 'arguments': json.dumps(c['args'])}}
+                        for c in tool_calls
+                    ])
+                    for c in tool_calls:
+                        await self.push_frame(
+                            FunctionCallFrame(tool_call_id=c['id'], name=c['name'], args=c['args']),
+                            Direction.DOWNSTREAM)
+                        result = await self.registry.execute(c['name'], c['args'])
+                        await self.push_frame(
+                            FunctionCallResultFrame(tool_call_id=c['id'], name=c['name'], result=result),
+                            Direction.DOWNSTREAM)
+                        self.context.add_tool_result(c['id'], c['name'], result)
+                    user_text = None  # next round uses the updated context
+                    continue
+                # no tools → final answer
+                if full:
+                    self.context.add_assistant(full)
+                    await self.push_frame(LLMFullResponseFrame(text=full), Direction.DOWNSTREAM)
+                return
+            # exceeded tool rounds — emit whatever we have
+            await self.push_frame(LLMFullResponseFrame(text='(tool loop limit reached)'),
+                                  Direction.DOWNSTREAM)
         except Exception as e:
             await self.push_frame(ErrorFrame(message=str(e), source=self.name), Direction.DOWNSTREAM)
 
@@ -91,6 +122,7 @@ class LLMProcessor(FrameProcessor):
             }
         headers = {'Accept': 'text/event-stream', 'Content-Type': 'application/json'}
         full = ''
+        tool_acc = {}   # streaming tool_call accumulator
         timeout = aiohttp.ClientTimeout(total=120)
         async with aiohttp.ClientSession(timeout=timeout) as s:
             async with s.post(self.url, json=payload, headers=headers) as r:
@@ -110,18 +142,22 @@ class LLMProcessor(FrameProcessor):
                                     continue
                                 payload_s = line[5:].strip()
                                 if payload_s == '[DONE]':
-                                    return full
+                                    return full, finalize_tool_calls(tool_acc)
                                 try:
                                     evt = json.loads(payload_s)
                                 except Exception:
                                     continue
+                                # tool_calls in the delta (OpenAI streaming)
+                                delta = self._delta(evt)
+                                if delta.get('tool_calls'):
+                                    parse_streaming_tool_calls(tool_acc, delta)
                                 tok = self._extract_token(evt)
                                 if tok:
                                     full += tok
                                     await self.push_frame(LLMTokenFrame(text=tok), Direction.DOWNSTREAM)
                                 if evt.get('done'):
-                                    return evt.get('full', full)
-                    return full
+                                    return evt.get('full', full), finalize_tool_calls(tool_acc)
+                    return full, finalize_tool_calls(tool_acc)
                 else:
                     data = await r.json()
                     full = data.get('text') or data.get('reply') or data.get('content', '')
@@ -130,7 +166,14 @@ class LLMProcessor(FrameProcessor):
                     for i in range(0, len(words), 4):
                         await self.push_frame(LLMTokenFrame(text=' '.join(words[i:i+4]) + ' '),
                                               Direction.DOWNSTREAM)
-                    return full
+                    return full, []
+
+    @staticmethod
+    def _delta(evt):
+        try:
+            return evt['choices'][0].get('delta', {})
+        except (KeyError, IndexError, TypeError):
+            return {}
 
     @staticmethod
     def _extract_token(evt):

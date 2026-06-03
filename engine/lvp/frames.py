@@ -92,6 +92,22 @@ class TextSentenceFrame(Frame):
     text: str = ''
 
 
+@dataclass
+class FunctionCallFrame(Frame):
+    """LLM pediu pra executar uma tool."""
+    tool_call_id: str = ''
+    name: str = ''
+    args: dict = field(default_factory=dict)
+
+
+@dataclass
+class FunctionCallResultFrame(Frame):
+    """Resultado de uma tool, pronto pra voltar ao contexto."""
+    tool_call_id: str = ''
+    name: str = ''
+    result: object = None
+
+
 # ─── Controle / sistema (prioridade alta) ────────────────────────────
 
 @dataclass
