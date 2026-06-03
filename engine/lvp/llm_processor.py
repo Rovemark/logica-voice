@@ -22,21 +22,31 @@ from .frames import (
     TranscriptionFrame, LLMTokenFrame, LLMFullResponseFrame,
     InterruptionFrame, ErrorFrame,
 )
+from .context import LLMContext
 
 # Default points to a local OpenAI-compatible endpoint (Ollama). Override LVP_LLM_URL
 # with your own SSE endpoint — the engine is brain-agnostic.
 LLM_URL = os.environ.get('LVP_LLM_URL', 'http://127.0.0.1:11434/v1/chat/completions')
 LLM_AGENT = os.environ.get('LVP_LLM_AGENT', 'assistant')
 LLM_MODEL = os.environ.get('LVP_LLM_MODEL', '')  # for OpenAI-compatible payloads
-MAX_HISTORY = int(os.environ.get('LVP_LLM_MAX_HISTORY', '12'))
+LLM_SYSTEM = os.environ.get('LVP_LLM_SYSTEM', '')
+MAX_HISTORY = int(os.environ.get('LVP_LLM_MAX_HISTORY', '40'))
 
 
 class LLMProcessor(FrameProcessor):
-    def __init__(self, url=LLM_URL, agent=LLM_AGENT, name=None):
+    """
+    Streams an LLM response per user turn. Conversation lives in an LLMContext
+    (multi-turn memory + tool messages). Pass your own context to share it with
+    tool-calling (FASE 2.2); otherwise one is created.
+    """
+
+    def __init__(self, url=LLM_URL, agent=LLM_AGENT, context=None, name=None):
         super().__init__(name)
         self.url = url
         self.agent = agent
-        self.history = []
+        self.context = context or LLMContext(
+            system=LLM_SYSTEM or None, max_messages=MAX_HISTORY,
+        )
 
     async def process_frame(self, frame, direction):
         if isinstance(frame, InterruptionFrame):
@@ -46,8 +56,7 @@ class LLMProcessor(FrameProcessor):
         if isinstance(frame, TranscriptionFrame):
             # Repassa pro transport (telemetria stt_final na UI) ANTES de consumir
             await self.push_frame(frame, direction)
-            self.history.append({'role': 'user', 'content': frame.text})
-            self.history = self.history[-MAX_HISTORY:]
+            self.context.add_user(frame.text)
             self._spawn(self._run(frame.text))
             return
         await super().process_frame(frame, direction)
@@ -56,25 +65,28 @@ class LLMProcessor(FrameProcessor):
         try:
             full = await self._stream_llm(user_text)
             if full:
-                self.history.append({'role': 'assistant', 'content': full})
-                self.history = self.history[-MAX_HISTORY:]
+                self.context.add_assistant(full)
                 await self.push_frame(LLMFullResponseFrame(text=full), Direction.DOWNSTREAM)
         except Exception as e:
             await self.push_frame(ErrorFrame(message=str(e), source=self.name), Direction.DOWNSTREAM)
 
     async def _stream_llm(self, user_text):
+        messages = self.context.get_messages()
         if LLM_MODEL:
             # OpenAI-compatible (Ollama, OpenAI, Together, Groq, vLLM…)
             payload = {
                 'model': LLM_MODEL,
-                'messages': self.history,  # já inclui a msg atual
+                'messages': messages,   # already includes the current user turn
                 'stream': True,
             }
+            tools = self.context.get_tools()
+            if tools:
+                payload['tools'] = tools
         else:
             # Generic Logica Voice / custom endpoint: {message, history, agent}
             payload = {
                 'message': user_text,
-                'history': self.history[:-1],
+                'history': messages[:-1],   # all but the current user turn
                 'agent': self.agent,
             }
         headers = {'Accept': 'text/event-stream', 'Content-Type': 'application/json'}
