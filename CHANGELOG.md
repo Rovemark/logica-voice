@@ -8,6 +8,23 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and adh
 
 ## [Unreleased]
 
+### Added — LVP engine parity (drivers + advanced processors)
+- **Streaming STT** (`streaming_stt`) — WebSocket adapter emitting real interim transcriptions as you speak (vs batch-per-turn).
+- **Token-streaming TTS** (`streaming_tts`) — WebSocket adapter pushing audio chunks while text generates.
+- **Direct LLM adapters** (`llm_adapters`) — native tool calling for the Messages API (Claude) and `streamGenerateContent` (Gemini); reuses the same agent/tool loop, only the wire format differs.
+- **Long-term memory** (`memory`) — `LongTermMemory` persists facts across sessions and injects relevant ones per turn; pluggable backend (mem0 / HTTP / zero-dep in-process).
+- **Background audio mixer** (`audio_mixer`) — loops a music/hold bed under the bot's voice, with optional ducking while speaking.
+- **Pattern aggregator** (`aggregators`) — strips `<thinking>…</thinking>` (and custom pairs) from the LLM stream so the bot never speaks its scratch-pad.
+- **DTMF aggregator** (`aggregators`) — collects phone keypad presses into a turn on a terminator/timeout.
+- **Word timestamps** (`aggregators`, `frames`) — `WordTimestampFrame` for karaoke-style word highlighting.
+- **Producer/Consumer** (`sync`) — move frames between separate pipelines via a shared queue.
+- **Wake word** (`filters`) — `WakeCheckFilter` gates the conversation behind "Astro"/"Jarvis" with a keepalive window; plus generic frame filters.
+- **Conversation summarization** (`context`) — compress old turns into a summary instead of dropping them.
+
+### Changed
+- **VAD is now a 4-state machine** (`vad_processor`) — QUIET → STARTING → SPEAKING → STOPPING with onset confirmation (`start_secs`, rejects clicks/coughs) and a volume gate (`min_volume`, rejects steady background noise).
+- **Lifecycle frames** — `StartFrame` (boot config) and `HeartbeatFrame` (health pulse) propagate through the pipeline; `PauseFrame`/`ResumeFrame` hold/drain data frames while system frames keep flowing; TTS emits `TTSStartedFrame`/`TTSStoppedFrame`.
+
 ### Coming in v0.2
 - Voice services implementation: faster-whisper, Kokoro, F5-TTS via Python bridge
 - Audio in/out in Telegram + WhatsApp adapters

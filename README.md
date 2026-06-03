@@ -95,10 +95,19 @@ engine/
 │   ├── frames.py            AudioInFrame · TranscriptionFrame · LLMTokenFrame
 │   │                        TextSentenceFrame · AudioOutFrame · InterruptionFrame …
 │   ├── processor.py         FrameProcessor base + Pipeline runner
-│   ├── vad_processor.py     voice activity detection · smart-turn (250 ms) · barge-in
+│   ├── vad_processor.py     VAD · 4-state machine · smart-turn (250 ms) · barge-in
 │   ├── stt_processor.py     speech-to-text  (any compatible HTTP server)
+│   ├── streaming_stt.py     WebSocket streaming STT (interim text as you talk)
 │   ├── llm_processor.py     LLM over SSE    (standard chat-completions OR {token:…})
+│   ├── llm_adapters.py      direct LLM adapters with native tool calling
 │   ├── tts_processor.py     sentence aggregator + text-to-speech
+│   ├── streaming_tts.py     WebSocket token-streaming TTS
+│   ├── context.py           multi-turn memory + conversation summarization
+│   ├── filters.py           wake word ("Astro"/"Jarvis") + frame gates
+│   ├── aggregators.py       hide <thinking> · DTMF→turn · word timestamps
+│   ├── audio_mixer.py       background music / hold bed
+│   ├── memory.py            long-term memory across sessions
+│   ├── sync.py              Producer/Consumer — frames across pipelines
 │   ├── transport.py         frames → WebSocket
 │   └── runner.py            wires the pipeline + echo guard
 └── servers/                 swappable model servers — pick your trade-off
@@ -119,23 +128,32 @@ pipeline.** That's the whole philosophy: small parts, clean seams, your choice a
 | Capability | Module |
 |---|---|
 | 🎯 Semantic turn detection (knows you're not done talking, PT-BR) | `smart_turn` |
-| ⚡ Streaming STT (interim text as you speak) | `stt_processor` |
-| 🧠 Multi-turn memory (LLMContext) | `context` |
+| 🎚️ VAD state machine (4-state · onset confirm · volume gate) | `vad_processor` |
+| ⚡ Streaming STT — batch partials or full WebSocket interim | `stt_processor`, `streaming_stt` |
+| 🧠 Multi-turn memory + conversation summarization | `context` |
+| ♾️ Long-term memory across sessions (pluggable backend) | `memory` |
 | 🛠️ Function/tool calling (LLM → tool → LLM agent loop) | `tools` |
+| 🔗 Direct LLM adapters with native tool calling | `llm_adapters` |
+| 🗣️ Token-streaming TTS (audio while it generates) | `streaming_tts` |
+| 💬 Wake word ("Astro"/"Jarvis", configurable) | `filters` |
+| 🤫 Hide `<thinking>` blocks from speech | `aggregators` |
+| ⏯️ Pause/resume + lifecycle frames (Start · Heartbeat) | `processor`, `frames` |
 | ✂️ Barge-in + priority frames (system frames never queue) | `processor`, `frames` |
 | 📊 Latency metrics (TTFB per stage) | `metrics` |
 | 🔭 OpenTelemetry tracing (optional) | `tracing` |
 | 🎙️ Conversation recording (stereo user/bot WAV) | `recording` |
+| 🎵 Background audio mixer (music / hold bed) | `audio_mixer` |
 | 🔇 Noise suppression (before VAD/STT) | `audio_filter` |
 | ⏰ User idle / re-engagement | `idle_processor` |
 | 🔌 RTVI protocol (standard client SDKs) | `rtvi` |
 | 📦 JSON / Msgpack serializers | `serializers` |
 | 🌐 WebSocket + WebRTC transports | `transports` |
-| ☎️ Telephony (Twilio μ-law + DTMF) | `telephony` |
+| ☎️ Telephony (μ-law) + DTMF keypad → turn | `telephony`, `aggregators` |
+| ⏱️ Word timestamps (karaoke-style highlight) | `aggregators`, `frames` |
 | 👁️ Vision/multimodal frames | `frames` |
-| 🔀 ParallelPipeline + service failover | `advanced` |
+| 🔀 ParallelPipeline · service failover · Producer/Consumer | `advanced`, `sync` |
 
-Full feature parity with the leading voice frameworks — **100% ours, all local, MIT.**
+Everything a serious voice agent needs — **100% ours, all local, MIT.**
 
 ---
 
@@ -172,12 +190,14 @@ real-time voice engine, **already works.**
 
 ## 🗺️ Roadmap
 
-- **Engine (alpha)** ✅ — LVP frame pipeline · VAD · STT · LLM(SSE) · TTS · barge-in · streaming
+- **Engine (alpha)** ✅ — LVP pipeline · VAD state-machine · smart-turn · STT (+streaming) ·
+  LLM (SSE + direct adapters w/ tools) · TTS (+token-streaming) · barge-in · long-term memory ·
+  wake word · mixer · telephony · WebRTC
 - **Voice depth** 🚧 — voice cloning wizard, per-agent voice mapping, emotion control
 - **Channels** — WhatsApp · Telegram · desktop · web adapters on top of the engine
 - **Multi-agent** — YAML agents, `@mention` routing, per-agent LLM + voice
 - **One-command install** — `npx create-logica-voice`, Docker compose, public release
-- **Jarvis** — lower-latency turn, streaming STT (partials), <1 s voice-to-voice
+- **Jarvis** — lower-latency turn, <1 s voice-to-voice end to end
 
 ---
 

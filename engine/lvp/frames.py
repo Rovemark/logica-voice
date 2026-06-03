@@ -116,6 +116,20 @@ class InterimTranscriptionFrame(Frame):
 class TranscriptionFrame(Frame):
     """Transcrição FINAL (após fim da fala)."""
     text: str = ''
+    # Optional per-word timing from the STT (list of {"word","start","end"} in seconds).
+    # Empty unless the STT backend returns word-level timestamps.
+    words: list = field(default_factory=list)
+
+
+@dataclass
+class WordTimestampFrame(Frame):
+    """
+    A single spoken word aligned to the bot's output audio timeline (karaoke/highlight).
+    Emitted by TTS backends that report word timing; `time` is seconds from the start of
+    the current utterance.
+    """
+    word: str = ''
+    time: float = 0.0
 
 
 # ─── LLM ─────────────────────────────────────────────────────────────

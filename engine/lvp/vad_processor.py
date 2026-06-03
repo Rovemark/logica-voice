@@ -13,6 +13,7 @@ cortar no meio de pausas naturais.
 import io
 import time
 import wave
+from enum import Enum
 import numpy as np
 
 from .processor import FrameProcessor, Direction
@@ -23,6 +24,22 @@ from .frames import (
 
 VAD_FRAME_SIZE = 512  # 32ms @ 16kHz (Silero exige 512)
 SAMPLE_RATE = 16000
+FRAME_MS = (VAD_FRAME_SIZE * 1000) // SAMPLE_RATE  # ~32ms
+
+
+class VADState(Enum):
+    """
+    4-state machine (Pipecat-style) with hysteresis so a single noisy/quiet frame doesn't
+    flip detection:
+      QUIET    — silence; waiting for speech onset
+      STARTING — heard voice, confirming it lasts >= start_secs before committing
+      SPEAKING — confirmed speech; accumulating the utterance
+      STOPPING — heard silence mid-speech, confirming it lasts >= silence_gap before closing
+    """
+    QUIET = 1
+    STARTING = 2
+    SPEAKING = 3
+    STOPPING = 4
 
 
 def _frames_to_wav(frames):
@@ -48,7 +65,7 @@ class VADProcessor(FrameProcessor):
 
     def __init__(self, silence_gap_ms=250, min_utterance_ms=250, threshold=0.5,
                  bot_speaking_getter=None, smart_turn=False, hard_stop_secs=3.0,
-                 partial_interval_ms=0, name=None):
+                 partial_interval_ms=0, start_secs=0.0, min_volume=0.0, name=None):
         super().__init__(name)
         from silero_vad import load_silero_vad
         import torch
@@ -61,6 +78,12 @@ class VADProcessor(FrameProcessor):
         self.silence_gap_ms = silence_gap_ms
         self.min_utterance_ms = min_utterance_ms
         self.hard_stop_ms = hard_stop_secs * 1000
+        # Onset confirmation: voice must persist >= start_secs before we commit to SPEAKING
+        # (rejects clicks/coughs). 0.0 = commit on the first voice frame (legacy behavior).
+        self.start_ms = start_secs * 1000
+        # Volume gate: a frame counts as voice only if its RMS (normalized 0..1) >= min_volume,
+        # even if the model says speech — rejects steady low-level background noise. 0 = off.
+        self.min_volume = min_volume
         # STT streaming: if > 0, emit a partial-audio frame every N ms of speech
         # so the STT can produce interim transcriptions (text appears as you talk).
         self.partial_interval_ms = partial_interval_ms
@@ -81,15 +104,26 @@ class VADProcessor(FrameProcessor):
         self._buf = np.zeros(0, dtype=np.int16)
         self._frames = []
         self._silence_frames = 0
-        self._speaking = False
+        self._state = VADState.QUIET
+        self._voice_run_frames = 0   # consecutive voice frames during STARTING
         self._start_ts = 0.0
         self._interrupted_this_turn = False
         self._smart_checked = False  # já rodou o smart-turn nesta pausa?
+
+    @property
+    def _speaking(self):
+        # SPEAKING or STOPPING both mean "an utterance is in progress".
+        return self._state in (VADState.SPEAKING, VADState.STOPPING)
 
     def _is_speech(self, frame_int16):
         if len(frame_int16) != VAD_FRAME_SIZE:
             return False
         f = frame_int16.astype(np.float32) / 32768.0
+        # Volume gate: reject frames quieter than min_volume even if the model fires.
+        if self.min_volume > 0.0:
+            rms = float(np.sqrt(np.mean(f * f)))
+            if rms < self.min_volume:
+                return False
         with self._torch.no_grad():
             prob = self._model(self._torch.from_numpy(f), SAMPLE_RATE).item()
         return prob >= self.threshold
@@ -116,35 +150,46 @@ class VADProcessor(FrameProcessor):
                 self._interrupted_this_turn = True
                 await self.push_frame(InterruptionFrame(), Direction.DOWNSTREAM)
 
-            if speech:
-                if not self._speaking:
-                    self._speaking = True
-                    self._start_ts = time.time()
-                    self._frames = []
-                    self._last_partial_frames = 0
-                    await self.push_frame(UserStartedSpeakingFrame(), Direction.DOWNSTREAM)
-                self._frames.append(chunk)
-                self._silence_frames = 0
-                self._smart_checked = False  # voltou a falar → reseta o check semântico
+            # ── State machine: QUIET → STARTING → SPEAKING → STOPPING ──
+            if self._state == VADState.QUIET:
+                if speech:
+                    self._state = VADState.STARTING
+                    self._voice_run_frames = 1
+                    self._frames = [chunk]          # buffer the onset
+                    if self.start_ms <= 0:
+                        await self._begin_speaking()
 
-                # STT streaming: emit a partial every partial_interval_ms of speech
-                if self.partial_interval_ms > 0:
-                    nframes = len(self._frames)
-                    elapsed = (nframes * VAD_FRAME_SIZE * 1000) // SAMPLE_RATE
-                    last_elapsed = (self._last_partial_frames * VAD_FRAME_SIZE * 1000) // SAMPLE_RATE
-                    if elapsed - last_elapsed >= self.partial_interval_ms:
-                        self._last_partial_frames = nframes
-                        await self.push_frame(
-                            PartialUtteranceFrame(audio_wav=_frames_to_wav(self._frames), duration_ms=elapsed),
-                            Direction.DOWNSTREAM,
-                        )
-            else:
-                if self._speaking:
+            elif self._state == VADState.STARTING:
+                if speech:
+                    self._voice_run_frames += 1
                     self._frames.append(chunk)
+                    if self._voice_run_frames * FRAME_MS >= self.start_ms:
+                        await self._begin_speaking()
+                else:
+                    self._abandon()                 # false start (click/cough) — discard
+
+            elif self._state == VADState.SPEAKING:
+                self._frames.append(chunk)
+                if speech:
+                    self._silence_frames = 0
+                    self._smart_checked = False
+                    await self._maybe_partial()
+                else:
+                    self._state = VADState.STOPPING
+                    self._silence_frames = 1
+
+            elif self._state == VADState.STOPPING:
+                self._frames.append(chunk)
+                if speech:
+                    self._state = VADState.SPEAKING  # resumed — it was just a pause
+                    self._silence_frames = 0
+                    self._smart_checked = False
+                    await self._maybe_partial()
+                else:
                     self._silence_frames += 1
 
-            # Turn detection
-            if self._speaking:
+            # Turn detection (only while an utterance is in progress)
+            if self._state in (VADState.SPEAKING, VADState.STOPPING):
                 silence_ms = (self._silence_frames * VAD_FRAME_SIZE * 1000) // SAMPLE_RATE
 
                 if self._smart_turn is not None:
@@ -160,6 +205,37 @@ class VADProcessor(FrameProcessor):
                     # Silence-based: close after the gap.
                     if silence_ms >= self.silence_gap_ms:
                         await self._close_utterance()
+
+    async def _begin_speaking(self):
+        """Commit STARTING → SPEAKING and announce the user turn."""
+        self._state = VADState.SPEAKING
+        self._start_ts = time.time()
+        self._silence_frames = 0
+        self._last_partial_frames = 0
+        self._smart_checked = False
+        await self.push_frame(UserStartedSpeakingFrame(), Direction.DOWNSTREAM)
+
+    async def _maybe_partial(self):
+        """STT streaming: emit a partial every partial_interval_ms of speech."""
+        if self.partial_interval_ms <= 0:
+            return
+        nframes = len(self._frames)
+        elapsed = (nframes * VAD_FRAME_SIZE * 1000) // SAMPLE_RATE
+        last_elapsed = (self._last_partial_frames * VAD_FRAME_SIZE * 1000) // SAMPLE_RATE
+        if elapsed - last_elapsed >= self.partial_interval_ms:
+            self._last_partial_frames = nframes
+            await self.push_frame(
+                PartialUtteranceFrame(audio_wav=_frames_to_wav(self._frames), duration_ms=elapsed),
+                Direction.DOWNSTREAM,
+            )
+
+    def _abandon(self):
+        """Drop an unconfirmed onset (STARTING that didn't last start_secs)."""
+        self._frames = []
+        self._silence_frames = 0
+        self._voice_run_frames = 0
+        self._smart_checked = False
+        self._state = VADState.QUIET
 
     def _semantic_turn_complete(self) -> bool:
         """Run the smart-turn model on the accumulated audio (last 8 s)."""
@@ -186,7 +262,8 @@ class VADProcessor(FrameProcessor):
     def _reset(self):
         self._frames = []
         self._silence_frames = 0
-        self._speaking = False
+        self._voice_run_frames = 0
+        self._state = VADState.QUIET
         self._interrupted_this_turn = False
         self._smart_checked = False
         self._buf = np.zeros(0, dtype=np.int16)

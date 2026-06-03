@@ -44,6 +44,9 @@ METRICS = os.environ.get('LVP_METRICS', 'true').lower() in ('1', 'true', 'yes')
 PARTIAL_MS = int(os.environ.get('LVP_STT_PARTIAL_MS', '0'))
 # RTVI protocol: emit standardized client/server events alongside the native protocol.
 RTVI = os.environ.get('LVP_RTVI', 'false').lower() in ('1', 'true', 'yes')
+# VAD onset confirmation (rejects clicks/coughs) + volume gate (rejects steady noise).
+VAD_START_SECS = float(os.environ.get('LVP_VAD_START_SECS', '0'))
+VAD_MIN_VOLUME = float(os.environ.get('LVP_VAD_MIN_VOLUME', '0'))
 
 
 class LVPSession:
@@ -65,6 +68,7 @@ class LVPSession:
             silence_gap_ms=SILENCE_GAP_MS, bot_speaking_getter=bot_speaking,
             smart_turn=SMART_TURN, hard_stop_secs=HARD_STOP_SECS,
             partial_interval_ms=PARTIAL_MS,
+            start_secs=VAD_START_SECS, min_volume=VAD_MIN_VOLUME,
         )
         observers = [MetricsCollector(log=True)] if METRICS else []
         self.rtvi = RTVIObserver(ws) if RTVI else None
