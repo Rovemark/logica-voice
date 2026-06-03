@@ -146,6 +146,18 @@ class CancelFrame(SystemFrame):
 
 
 @dataclass
+class InputDTMFFrame(SystemFrame):
+    """A DTMF key press from the caller (telephony)."""
+    digit: str = ''
+
+
+@dataclass
+class OutputDTMFFrame(SystemFrame):
+    """A DTMF tone to play to the caller (telephony)."""
+    digit: str = ''
+
+
+@dataclass
 class MetricsFrame(Frame):
     """Latency/usage metrics for a turn (TTFB per stage, totals)."""
     metrics: dict = field(default_factory=dict)
