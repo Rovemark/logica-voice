@@ -5,10 +5,10 @@
 > Build voice agents for WhatsApp, Telegram, desktop & web that sound like ElevenLabs, respond in <200ms (Jarvis mode), run on your laptop, and cost **$0/month**.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.5+-blue.svg)](https://www.typescriptlang.org/)
-[![Node](https://img.shields.io/badge/Node-20+-green.svg)](https://nodejs.org/)
+[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://python.org/)
+[![Engine](https://img.shields.io/badge/LVP%20engine-working-brightgreen.svg)](#what-works-today-the-lvp-engine-real-time-voice-pipeline)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
-[![Status](https://img.shields.io/badge/status-v0.1%20scaffold-orange.svg)](docs/ROADMAP.md)
+[![Status](https://img.shields.io/badge/status-engine%20alpha-orange.svg)](docs/ROADMAP.md)
 
 ```bash
 npx create-logica-voice my-bot   # in 30 seconds
@@ -34,27 +34,46 @@ Building a voice agent for WhatsApp + Telegram + desktop today means stitching t
 
 ---
 
-## Quick start (60 seconds)
+## What works today: the **LVP engine** (real-time voice pipeline)
+
+The heart of Logica Voice is **LVP — the Logica Voice Pipeline**: a frame-based,
+streaming, full-duplex voice engine written in Python. It's our own take on Pipecat —
+same idea (frames flowing through processors), 100% our code, runs 100% local.
+
+```
+mic → VAD (Silero) → STT (Whisper) → LLM (yours) → Sentence aggregator → TTS → speaker
+                                                          ↑ barge-in (talk over it = it stops)
+```
+
+**It's running and stable today.** STT + LLM + TTS stream in parallel — the first
+sentence starts speaking before the LLM finishes generating.
+
+### Run it (real, works now)
 
 ```bash
-# 1. Create a project
-npx create-logica-voice my-bot
-cd my-bot
+# 1. Install the engine (venv + models, ~5-10 min first run)
+bash engine/setup.sh
 
-# 2. Configure (edit logica-voice.yaml)
-#    - Channels: Telegram + WhatsApp + Voice desktop + Web
-#    - Brain: OpenAI / Claude / Gemini / Ollama / MLX / LogicaOS / custom HTTP
-#    - Voice: Kokoro / F5-TTS / Qwen3-TTS / ElevenLabs (opt-in)
+# 2. Start the model servers
+source engine/.venv/bin/activate
+python engine/servers/whisper_server.py --port 8910 &   # STT
+python engine/servers/kokoro_server.py  --port 8911 &   # TTS (fast, ~80MB)
 
-# 3. Start
-npm start
+# 3. Start the pipeline — plug ANY LLM that streams SSE
+LVP_LLM_URL="http://localhost:11434/v1/chat/completions" \   # e.g. Ollama, OpenAI-compatible
+  python engine/live_server.py --port 8915
 
-# That's it.
-# - Telegram bot active on your @username_bot
-# - WhatsApp QR in terminal → scan
-# - Voice desktop client connects via WebSocket
-# - Web chat on http://localhost:3000
+# 4. Connect over WebSocket (ws://127.0.0.1:8915)
+#    send PCM 16kHz int16 mono → receive PCM 24kHz back. Done.
 ```
+
+The LLM is **pluggable** — point `LVP_LLM_URL` at any SSE endpoint (OpenAI-compatible,
+Ollama, your own service, or [LogicaOS](https://logicaos.com)). The engine knows nothing
+about your brain — it just streams audio in and out.
+
+> **Heads up:** the `npx create-logica-voice` CLI, the multi-channel YAML config, and the
+> TypeScript packages below are the **product vision (roadmap)**. The Python engine above
+> is what runs today.
 
 ---
 
@@ -121,32 +140,45 @@ Then on WhatsApp:
 
 ## Architecture
 
+### LVP engine (Python) — what runs today
+
+```
+engine/
+├── live_server.py          WebSocket server (PCM in → PCM out) + /health
+├── lvp/                     the frame pipeline (our "Pipecat")
+│   ├── frames.py            AudioInFrame, TranscriptionFrame, LLMTokenFrame,
+│   │                        TextSentenceFrame, AudioOutFrame, InterruptionFrame…
+│   ├── processor.py         FrameProcessor base + Pipeline runner
+│   ├── vad_processor.py     Silero VAD + smart-turn (250ms) + barge-in
+│   ├── stt_processor.py     STT over HTTP (any Whisper-compatible server)
+│   ├── llm_processor.py     LLM over SSE (OpenAI-compatible OR {token:…})
+│   ├── tts_processor.py     SentenceAggregator + TTS (kokoro/pocket/chatterbox)
+│   ├── transport.py         frames → WebSocket
+│   └── runner.py            wires the pipeline + echo guard
+└── servers/                 model HTTP servers (lazy, swappable)
+    ├── whisper_server.py    STT  (faster-whisper / mlx-whisper)
+    ├── kokoro_server.py     TTS  (Kokoro-82M, fast, ~80MB)
+    ├── pocket_tts_server.py TTS  (Kyutai Pocket, PT-BR native)
+    └── chatterbox_server.py TTS  (Resemble Chatterbox, voice cloning)
+```
+
+**Frames flow downstream** (`VAD → STT → LLM → SentenceAggregator → TTS → Transport`);
+`InterruptionFrame` propagates and cancels in-flight work for instant barge-in. Every
+backend is an HTTP/SSE endpoint, so you swap STT / LLM / TTS without touching the pipeline.
+
+### Full product (roadmap)
+
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  CHANNELS (your users live here)                            │
-│  ├─ WhatsApp (Baileys)                                       │
-│  ├─ Telegram (Bot API)                                       │
-│  ├─ Voice desktop (LogicaOS Voice client)                    │
-│  └─ Web chat (React + WebSocket)                             │
+│  CHANNELS   WhatsApp · Telegram · Voice desktop · Web         │
 ├──────────────────────────────────────────────────────────────┤
-│  PIPELINE (frame-based, streaming, inspired by Pipecat)      │
-│  ├─ VAD (Silero)                                             │
-│  ├─ STT (faster-whisper / Voxtral / Moonshine)               │
-│  ├─ LLM (any brain adapter)                                  │
-│  ├─ TTS (Kokoro / F5-TTS / Qwen3-TTS)                        │
-│  └─ Barge-in + smart turn detection                          │
+│  LVP ENGINE (above) — VAD · STT · LLM · TTS · barge-in        │
 ├──────────────────────────────────────────────────────────────┤
-│  BRAIN (your intelligence — own it)                          │
-│  ├─ Built-in (agents.yaml + any LLM)                         │
-│  ├─ LogicaOS (130+ agents, squads, chains)                   │
-│  └─ Custom HTTP (any service)                                │
-├──────────────────────────────────────────────────────────────┤
-│  JARVIS MODE (opt-in)                                        │
-│  └─ Kyutai Moshi — full-duplex, <200ms, all local            │
+│  BRAIN   built-in (agents.yaml) · LogicaOS · custom HTTP      │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-Each layer is a separate package. Swap any component without touching the others. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ---
 
@@ -155,7 +187,7 @@ Each layer is a separate package. Swap any component without touching the others
 | Feature | Logica Voice | Pipecat | LiveKit Agents | Vapi | Botpress |
 |---|---|---|---|---|---|
 | Open source | ✅ MIT | ✅ BSD-2 | ✅ Apache | ❌ SaaS | ✅ MIT |
-| Language | **TypeScript** | Python | Python/Node | SaaS | TypeScript |
+| Engine language | **Python** (LVP) | Python | Python/Node | SaaS | TypeScript |
 | WhatsApp built-in | ✅ | ❌ | ❌ | ❌ | ⚠️ paid |
 | Telegram built-in | ✅ | ❌ | ❌ | ❌ | ⚠️ paid |
 | Voice desktop | ✅ | ⚠️ DIY | ⚠️ DIY | ✅ | ❌ |
@@ -165,7 +197,7 @@ Each layer is a separate package. Swap any component without touching the others
 | 100% local default | ✅ | ⚠️ | ❌ | ❌ | ⚠️ |
 | Minimum monthly cost | **$0** | $0 | $0 | $99-499 | $0 free tier |
 
-We're not "anti-Pipecat" — we're **inspired by it** (see [PIPECAT-COMPARISON.md](docs/PIPECAT-COMPARISON.md)). We picked TypeScript + built-in channels + multi-agent because that's what's missing in the ecosystem.
+We're not "anti-Pipecat" — we're **inspired by it** (see [PIPECAT-COMPARISON.md](docs/PIPECAT-COMPARISON.md)). The LVP engine is our own frame pipeline; what we add on top is built-in channels + multi-agent + voice-per-agent, which is what's missing in the ecosystem.
 
 ---
 
@@ -203,7 +235,7 @@ See [docs/VOICES.md](docs/VOICES.md) for the full voice system + ethics guidelin
 - **v0.5** — Discord, Slack, WebRTC mobile, LiveKit integration
 - **v1.0** — Production hardening, multi-tenant, observability
 
-See [CHANGELOG.md](CHANGELOG.md) for what shipped.
+Full roadmap: [docs/ROADMAP.md](docs/ROADMAP.md)
 
 ---
 
@@ -225,13 +257,17 @@ See [CHANGELOG.md](CHANGELOG.md) for what shipped.
 
 ---
 
-## Resources
+## Documentation
 
-- [CONTRIBUTING.md](CONTRIBUTING.md) — How to contribute
-- [CHANGELOG.md](CHANGELOG.md) — Version history
-- [SECURITY.md](SECURITY.md) — How to report vulnerabilities
-- [TROUBLESHOOTING.md](TROUBLESHOOTING.md) — Common issues & fixes
-- [examples/](examples/) — Ready-to-run templates
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md) — Frame-based pipeline, adapter interfaces
+- [STACK.md](docs/STACK.md) — Component choices (2026 benchmarks)
+- [DECISIONS.md](docs/DECISIONS.md) — Architecture Decision Records
+- [VOICE.md](docs/VOICE.md) — Audio pipeline (STT → LLM → TTS, Jarvis mode)
+- [VOICES.md](docs/VOICES.md) — Voice-per-agent system (3 tiers + ethics)
+- [BRAIN-ADAPTERS.md](docs/BRAIN-ADAPTERS.md) — Plug any LLM
+- [LOGICAOS-INTEGRATION.md](docs/LOGICAOS-INTEGRATION.md) — Bundle with LogicaOS for 130+ agents
+- [PIPECAT-COMPARISON.md](docs/PIPECAT-COMPARISON.md) — Credit & differences
+- [ROADMAP.md](docs/ROADMAP.md) — v0.1 → v1.0
 
 ---
 

@@ -1,0 +1,21 @@
+# Logica Voice — Python engine dependencies
+# Core pipeline
+websockets>=14
+aiohttp>=3.10
+numpy>=1.26
+
+# VAD (turn detection)
+silero-vad>=5.1
+torch>=2.2
+
+# STT
+faster-whisper>=1.0
+# mlx-whisper>=0.4   # Apple Silicon only (3x faster) — installed by setup.sh if arm64
+
+# TTS (pick what you use; setup.sh installs all by default)
+kokoro-onnx>=0.4       # fast, multilingual, lightweight (~80MB)
+soundfile>=0.12
+huggingface-hub>=0.25
+# pocket-tts>=2.0      # Kyutai, PT-BR native, CPU-only
+# chatterbox-tts>=0.1  # Resemble AI, #1 TTS Arena, voice cloning (heavy: torch 2.6+)
+scipy>=1.13

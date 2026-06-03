@@ -12,3 +12,11 @@ coverage/
 
 # Internal docs (kept in private brain repo, not public)
 docs/
+
+# Python engine
+engine/.venv/
+__pycache__/
+*.pyc
+engine/models/
+*.bak
+live_server_v1.py.bak
