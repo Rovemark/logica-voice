@@ -39,6 +39,36 @@ await vc.connect();
 vc.sendAudio(micPcm16k);   // Int16Array | ArrayBuffer | Uint8Array
 ```
 
+## React (drop-in hook, ~15 lines)
+
+The core is framework-agnostic — wrap it in a hook for React (same idea for Vue/Svelte):
+
+```tsx
+import { useEffect, useRef, useState } from 'react';
+import { LogicaVoiceClient } from '@logica-voice/client';
+import { startMicrophone, createPlayer } from '@logica-voice/client/browser';
+
+export function useLogicaVoice(url: string) {
+  const ref = useRef<LogicaVoiceClient>();
+  const [transcript, setTranscript] = useState('');
+  const [reply, setReply] = useState('');
+  const [speaking, setSpeaking] = useState(false);
+
+  useEffect(() => {
+    const vc = new LogicaVoiceClient(url); ref.current = vc;
+    vc.on('sttFinal', setTranscript);
+    vc.on('token', t => setReply(r => r + t));
+    vc.on('vad', setSpeaking);
+    createPlayer(vc);                                  // plays the bot's voice
+    let mic: { stop(): void } | undefined;
+    vc.connect().then(() => startMicrophone(vc)).then(m => { mic = m; });
+    return () => { mic?.stop(); vc.close(); };
+  }, [url]);
+
+  return { transcript, reply, speaking, interrupt: () => ref.current?.interrupt() };
+}
+```
+
 ## API
 
 `new LogicaVoiceClient(url, { WebSocketImpl? })`

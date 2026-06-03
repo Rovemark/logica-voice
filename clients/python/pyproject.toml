@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "logica-voice-client"
+version = "0.1.0"
+description = "Python client for a live Logica Voice pipeline (WebSocket: mic in, voice out)"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+keywords = ["voice", "websocket", "stt", "tts", "realtime", "logica-voice"]
+dependencies = ["websockets>=12"]
+
+[project.urls]
+Repository = "https://github.com/Rovemark/logica-voice"
+
+[tool.hatch.build.targets.wheel]
+packages = ["logica_voice"]

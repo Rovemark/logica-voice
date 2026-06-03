@@ -92,6 +92,41 @@ PYTHON=.venv/bin/python ./smoke/run.sh
 #   prints  CHAIN COMPLETE (VAD→STT→LLM→TTS): ✅ YES
 ```
 
+### Talk to it from your app
+
+A full voice UI is a handful of lines with **`@logica-voice/client`** (browser + Node) —
+the SDK speaks the same WebSocket protocol, mic and speaker included:
+
+```ts
+import { LogicaVoiceClient } from '@logica-voice/client';
+import { startMicrophone, createPlayer } from '@logica-voice/client/browser';
+
+const vc = new LogicaVoiceClient('ws://127.0.0.1:8915');
+vc.on('sttFinal', t => console.log('you:', t));   // what you said
+vc.on('token',    t => render(t));                 // streaming reply text
+createPlayer(vc);                                  // plays the bot's voice (gapless)
+await vc.connect();
+await startMicrophone(vc);                          // stream mic → pipeline
+// talk over it to interrupt:  vc.interrupt()
+```
+
+Typed events (`sttFinal` · `token` · `response` · `audio` · `vad` · `interrupted` ·
+`metrics`), one-call barge-in, no framework. See [`packages/client`](packages/client).
+
+**Python too** — same protocol, async:
+
+```python
+from logica_voice import LogicaVoiceClient          # pip install logica-voice-client
+vc = LogicaVoiceClient("ws://127.0.0.1:8915")
+@vc.on("stt_final")
+def _(e): print("you:", e["text"])
+await vc.connect(); await vc.send_audio(mic_pcm); await vc.run()
+```
+
+See [`clients/python`](clients/python). **React/Vue/Svelte:** the client is
+framework-agnostic — drop it into your lifecycle (a `useLogicaVoice` hook is ~10 lines).
+**Native iOS/Android:** on the roadmap; the protocol is small enough to implement directly.
+
 ---
 
 ## 🧩 Architecture
@@ -215,6 +250,10 @@ real-time voice engine, **already works.**
 - **Engine (alpha)** ✅ — LVP pipeline · VAD state-machine · smart-turn · STT (+streaming) ·
   LLM (SSE + direct adapters w/ tools) · TTS (+token-streaming) · barge-in · long-term memory ·
   wake word · mixer · telephony · WebRTC
+- **Client SDKs (alpha)** ✅ — `@logica-voice/client` (browser + Node) and
+  `logica-voice-client` (Python). React/Vue/Svelte via the framework-agnostic core; native
+  mobile next.
+- **End-to-end smoke** ✅ — one command boots the whole stack and proves a real turn
 - **Voice depth** 🚧 — voice cloning wizard, per-agent voice mapping, emotion control
 - **Channels** — WhatsApp · Telegram · desktop · web adapters on top of the engine
 - **Multi-agent** — YAML agents, `@mention` routing, per-agent LLM + voice
