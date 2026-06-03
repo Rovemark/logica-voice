@@ -26,6 +26,7 @@ from .stt_processor import STTProcessor
 from .llm_processor import LLMProcessor
 from .tts_processor import SentenceAggregator, TTSProcessor
 from .transport import TransportOutput
+from .metrics import MetricsCollector
 
 ECHO_TAIL_MS = int(os.environ.get('LVP_ECHO_TAIL_MS', '800'))
 SILENCE_GAP_MS = int(os.environ.get('LVP_SILENCE_GAP_MS', '250'))
@@ -35,6 +36,8 @@ TTS_VOICE = os.environ.get('LVP_TTS_VOICE', 'pm_alex')
 # Semantic turn detection: LVP_SMART_TURN=true enables the ML end-of-turn model.
 SMART_TURN = os.environ.get('LVP_SMART_TURN', 'false').lower() in ('1', 'true', 'yes')
 HARD_STOP_SECS = float(os.environ.get('LVP_HARD_STOP_SECS', '3.0'))
+# Latency metrics: on by default (cheap); LVP_METRICS=false to silence.
+METRICS = os.environ.get('LVP_METRICS', 'true').lower() in ('1', 'true', 'yes')
 
 
 class LVPSession:
@@ -56,6 +59,7 @@ class LVPSession:
             silence_gap_ms=SILENCE_GAP_MS, bot_speaking_getter=bot_speaking,
             smart_turn=SMART_TURN, hard_stop_secs=HARD_STOP_SECS,
         )
+        observers = [MetricsCollector(log=True)] if METRICS else []
         self.pipeline = Pipeline([
             self.vad,
             STTProcessor(),
@@ -63,7 +67,7 @@ class LVPSession:
             SentenceAggregator(),
             TTSProcessor(url=TTS_URL, voice=TTS_VOICE, engine=TTS_ENGINE),
             TransportOutput(ws, on_bot_audio=on_bot_audio),
-        ])
+        ], observers=observers)
 
     async def feed_audio(self, pcm: bytes):
         # Echo guard: ignora entrada enquanto bot fala (exceto pra barge-in, que o

@@ -101,6 +101,12 @@ class InterruptionFrame(Frame):
 
 
 @dataclass
+class MetricsFrame(Frame):
+    """Latency/usage metrics for a turn (TTFB per stage, totals)."""
+    metrics: dict = field(default_factory=dict)
+
+
+@dataclass
 class ErrorFrame(Frame):
     """Erro em algum processor."""
     message: str = ''

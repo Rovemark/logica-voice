@@ -17,6 +17,7 @@ from .frames import (
     AudioOutFrame, TranscriptionFrame, InterimTranscriptionFrame,
     LLMTokenFrame, LLMFullResponseFrame, UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame, InterruptionFrame, ErrorFrame, EndFrame,
+    MetricsFrame,
 )
 
 
@@ -60,6 +61,9 @@ class TransportOutput(FrameProcessor):
                 return
             if isinstance(frame, ErrorFrame):
                 await self.ws.send(json.dumps({'type': 'error', 'message': frame.message}))
+                return
+            if isinstance(frame, MetricsFrame):
+                await self.ws.send(json.dumps({'type': 'metrics', 'metrics': frame.metrics}))
                 return
         except Exception:
             pass  # WS pode ter fechado — ignora
