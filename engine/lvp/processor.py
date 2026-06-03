@@ -52,10 +52,13 @@ class FrameProcessor:
     # ─── Recebe frame — override no subclasse ────────────────────────
     async def process_frame(self, frame: Frame, direction: Direction):
         """
-        Default: interrupção cancela tasks locais e propaga; resto repassa.
-        Subclasses chamam super().process_frame() e depois tratam seus frames.
+        Default routing. System frames (Interruption/Cancel/End/Error) are high
+        priority: they cancel in-flight work and propagate immediately, so barge-in
+        and shutdown are never stuck behind a backlog of audio/text data frames.
+        Subclasses call super().process_frame() then handle their own data frames.
         """
-        if isinstance(frame, InterruptionFrame):
+        from .frames import SystemFrame, CancelFrame  # local import (avoid cycle)
+        if isinstance(frame, (InterruptionFrame, CancelFrame)):
             self._cancel_tasks()
             await self.push_frame(frame, direction)
             return
@@ -64,7 +67,11 @@ class FrameProcessor:
             await self.on_end()
             await self.push_frame(frame, direction)
             return
-        # Default: repassa
+        if isinstance(frame, SystemFrame):
+            # Other system frames (e.g. ErrorFrame): propagate immediately, don't cancel.
+            await self.push_frame(frame, direction)
+            return
+        # Default: repassa data/control frames
         await self.push_frame(frame, direction)
 
     # ─── Task helper (cancelável na interrupção) ─────────────────────

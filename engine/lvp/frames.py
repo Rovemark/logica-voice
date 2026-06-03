@@ -19,6 +19,22 @@ class Frame:
     ts: float = field(default_factory=time.time, kw_only=True)
 
 
+@dataclass
+class SystemFrame(Frame):
+    """
+    High-priority frame: handled IMMEDIATELY, never queued, survives interruption.
+    Interruption/Cancel/End/Error are system frames — they must reach every processor
+    instantly even if the data path is busy. This is what keeps barge-in snappy.
+    """
+    pass
+
+
+@dataclass
+class DataFrame(Frame):
+    """Ordered payload (audio/text/transcription). Cancelled by user interruption."""
+    pass
+
+
 # ─── Áudio ───────────────────────────────────────────────────────────
 
 @dataclass
@@ -118,8 +134,14 @@ class ControlFrame(Frame):
 
 
 @dataclass
-class InterruptionFrame(Frame):
+class InterruptionFrame(SystemFrame):
     """Barge-in: user falou em cima do Astro. Cancela TUDO downstream imediatamente."""
+    pass
+
+
+@dataclass
+class CancelFrame(SystemFrame):
+    """Encerra a sessão imediatamente, sem drenar (diferente de EndFrame que faz cleanup)."""
     pass
 
 
@@ -130,13 +152,13 @@ class MetricsFrame(Frame):
 
 
 @dataclass
-class ErrorFrame(Frame):
+class ErrorFrame(SystemFrame):
     """Erro em algum processor."""
     message: str = ''
     source: str = ''
 
 
 @dataclass
-class EndFrame(Frame):
+class EndFrame(SystemFrame):
     """Fim da sessão. Cada processor faz cleanup."""
     pass
