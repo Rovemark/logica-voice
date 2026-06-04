@@ -85,7 +85,20 @@ def _synthesize_to_wav(
         arr = arr.astype(np.int16)
     buf = io.BytesIO()
     scipy.io.wavfile.write(buf, model.sr, arr)
-    return buf.getvalue()
+    out = buf.getvalue()
+    # Free MPS/torch memory after each generation. Without this it accumulates to tens of
+    # GB on long-running servers → swap → inference crawls and the model starts repeating
+    # tokens (garbled/rushed speech). Keeps memory flat and output consistent.
+    try:
+        del wav, arr
+        import gc
+        import torch
+        if torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+        gc.collect()
+    except Exception:
+        pass
+    return out
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
